@@ -36,7 +36,8 @@ import java.nio.charset.StandardCharsets
 class StreamingCommunity(
     override var lang: String = "it",
 ) : MainAPI() {
-    override var mainUrl = Companion.mainUrl + lang
+    private var baseUrl = Companion.baseUrls.first()
+    override var mainUrl = baseUrl + lang
     override var name = Companion.name
     override var supportedTypes =
         setOf(TvType.Movie, TvType.TvSeries, TvType.Cartoon, TvType.Documentary)
@@ -51,7 +52,10 @@ class StreamingCommunity(
             "X-Inertia-Version" to inertiaVersion,
             "X-Requested-With" to "XMLHttpRequest",
         ).toMutableMap()
-        val mainUrl = "https://streamingunity.biz/"
+        val baseUrls = listOf(
+            "https://streamingunity.biz/",
+            "https://streamingcommunity.biz/"
+        )
         var name = "StreamingCommunity"
         val TAG = "SCommunity"
     }
@@ -87,7 +91,7 @@ class StreamingCommunity(
             .chunked(maxSlidersPerRequest)
             .forEachIndexed { index, sliderBatch ->
                 val response = app.post(
-                    "${Companion.mainUrl}api/sliders/fetch?lang=$lang",
+                    "${baseUrl}api/sliders/fetch?lang=$lang",
                     requestBody = SliderFetchRequestBody(sliderBatch).toRequestBody(),
                     headers = getSliderFetchHeaders()
                 )
@@ -171,30 +175,53 @@ class StreamingCommunity(
     }
 
     private suspend fun setupHeaders() {
-        val response = app.get("$mainUrl/archive")
-        val cookieJar = linkedMapOf<String, String>()
-        response.cookies.forEach { cookieJar[it.key] = it.value }
+        for (candidateBaseUrl in Companion.baseUrls.distinct()) {
+            val candidateMainUrl = candidateBaseUrl + lang
+            val archiveResponse = runCatching { app.get("$candidateMainUrl/archive") }
+                .onFailure { Log.e(TAG, "Headers setup failed for $candidateBaseUrl archive: ${it.message}") }
+                .getOrNull()
+                ?: continue
 
-        val csrfResponse = app.get(
-            "${Companion.mainUrl}sanctum/csrf-cookie",
-            headers = mapOf(
-                "Referer" to "$mainUrl/",
-                "X-Requested-With" to "XMLHttpRequest"
-            )
-        )
-        csrfResponse.cookies.forEach { cookieJar[it.key] = it.value }
+            val inertiaPageObject = archiveResponse.document.select("#app").attr("data-page")
+            if (inertiaPageObject.isBlank()) {
+                Log.e(TAG, "Headers setup failed for $candidateBaseUrl: missing inertia page data")
+                continue
+            }
 
-        headers["Cookie"] = cookieJar.entries.joinToString("; ") { "${it.key}=${it.value}" }
-        decodedXsrfToken = cookieJar["XSRF-TOKEN"]
-            ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
-            ?: ""
+            val cookieJar = linkedMapOf<String, String>()
+            archiveResponse.cookies.forEach { cookieJar[it.key] = it.value }
 
-        val page = response.document
-        val inertiaPageObject = page.select("#app").attr("data-page")
-        inertiaVersion = inertiaPageObject
-            .substringAfter("\"version\":\"")
-            .substringBefore("\"")
-        headers["X-Inertia-Version"] = inertiaVersion
+            val csrfResponse = runCatching {
+                app.get(
+                    "${candidateBaseUrl}sanctum/csrf-cookie",
+                    headers = mapOf(
+                        "Referer" to "$candidateMainUrl/",
+                        "X-Requested-With" to "XMLHttpRequest"
+                    )
+                )
+            }.onFailure {
+                Log.e(TAG, "Headers setup failed for $candidateBaseUrl csrf-cookie: ${it.message}")
+            }.getOrNull() ?: continue
+            csrfResponse.cookies.forEach { cookieJar[it.key] = it.value }
+
+            val xsrfToken = cookieJar["XSRF-TOKEN"]
+                ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.name()) }
+            if (xsrfToken.isNullOrBlank()) {
+                Log.e(TAG, "Headers setup failed for $candidateBaseUrl: missing XSRF token")
+                continue
+            }
+
+            baseUrl = candidateBaseUrl
+            mainUrl = candidateMainUrl
+            headers["Cookie"] = cookieJar.entries.joinToString("; ") { "${it.key}=${it.value}" }
+            decodedXsrfToken = xsrfToken
+            inertiaVersion = inertiaPageObject
+                .substringAfter("\"version\":\"")
+                .substringBefore("\"")
+            headers["X-Inertia-Version"] = inertiaVersion
+            Log.d(TAG, "Headers initialized using $baseUrl")
+            return
+        }
     }
 
     private fun getSliderFetchHeaders(): Map<String, String> {
@@ -205,7 +232,7 @@ class StreamingCommunity(
             "Referer" to "$mainUrl/",
             "Accept" to "application/json, text/plain, */*",
             "Content-Type" to "application/json",
-            "Origin" to Companion.mainUrl.removeSuffix("/")
+            "Origin" to baseUrl.removeSuffix("/")
         )
     }
 
@@ -246,6 +273,9 @@ class StreamingCommunity(
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
+        if (headers["Cookie"].isNullOrEmpty()) {
+            setupHeaders()
+        }
         val url = "$mainUrl/search"
         val response = app.get(url, params = mapOf("q" to query)).body.string()
         val titles = parseBrowseTitles(response, "Search")
@@ -253,6 +283,9 @@ class StreamingCommunity(
     }
 
     override suspend fun search(query: String, page: Int): SearchResponseList {
+        if (headers["Cookie"].isNullOrEmpty()) {
+            setupHeaders()
+        }
         val params = mutableMapOf("q" to query)
         if (page > 1) params["page"] = page.toString()
         val response = app.get("$mainUrl/search", params = params).body.string()
@@ -275,10 +308,10 @@ class StreamingCommunity(
     }
 
     override suspend fun load(url: String): LoadResponse {
-        val actualUrl = getActualUrl(url)
         if (headers["Cookie"].isNullOrEmpty()) {
             setupHeaders()
         }
+        val actualUrl = getActualUrl(url)
         val response = app.get(actualUrl, headers = headers)
         val responseBody = response.body.string()
 
@@ -428,7 +461,7 @@ class StreamingCommunity(
 
         VixCloudExtractor().getUrl(
             url = iframeSrc,
-            referer = mainUrl.substringBeforeLast("it"),
+            referer = baseUrl,
             subtitleCallback = subtitleCallback,
             callback = callback
         )

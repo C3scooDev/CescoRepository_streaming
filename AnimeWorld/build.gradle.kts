@@ -6,7 +6,7 @@ cloudstream {
     language = "it"
     // All of these properties are optional, you can safely remove them
 
-    authors = listOf("Gian-Fr", "doGior")
+    authors = listOf("Gian-Fr", "CescoDev")
     requiresResources = true
     description =
         "Anime from AnimeWorld. This plugin is a fork of the AnimeWorld plugin in the ItalianProvider repo"
