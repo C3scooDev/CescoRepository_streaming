@@ -15,6 +15,7 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.SearchResponseList
+import com.lagradost.cloudstream3.mainPageOf
 import com.lagradost.cloudstream3.newSearchResponseList
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
@@ -25,9 +26,11 @@ import com.lagradost.cloudstream3.newMovieLoadResponse
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
+import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.loadExtractor
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.parser.Parser
 import java.net.URLDecoder
@@ -42,6 +45,11 @@ class StreamingCommunity(
     override var supportedTypes =
         setOf(TvType.Movie, TvType.TvSeries, TvType.Cartoon, TvType.Documentary)
     override val hasMainPage = true
+    override val mainPage = mainPageOf(
+        "${Companion.tradeBaseUrl}archivio/?sorting=popserie" to "Popolari serie",
+        "${Companion.tradeBaseUrl}archivio/?tipo=1" to "Film recenti",
+        "${Companion.tradeBaseUrl}archivio/?sorting=soon" to "Prossimamente"
+    )
 
     companion object {
         private var inertiaVersion = ""
@@ -52,6 +60,7 @@ class StreamingCommunity(
             "X-Inertia-Version" to inertiaVersion,
             "X-Requested-With" to "XMLHttpRequest",
         ).toMutableMap()
+        const val tradeBaseUrl = "https://streaming-community.trade/"
         val baseUrls = listOf(
             "https://streamingunity.biz/",
             "https://streamingcommunity.biz/",
@@ -60,6 +69,7 @@ class StreamingCommunity(
         var name = "StreamingCommunity"
         val TAG = "SCommunity"
     }
+    private val tradeBaseUrl = Companion.tradeBaseUrl
 
     private val sliderFetchRequestBody = SliderFetchRequestBody(
         sliders = listOf(
@@ -256,7 +266,220 @@ class StreamingCommunity(
         return list
     }
 
+    private fun parseTradeSearchResponses(document: org.jsoup.nodes.Document): List<SearchResponse> {
+        return document.select("a.tile-image[href*=\"/titles/\"]")
+            .mapNotNull { anchor ->
+                val href = fixTradeUrl(anchor.attr("href")) ?: return@mapNotNull null
+                val title = href.substringAfterLast("/titles/")
+                    .substringBefore(".html")
+                    .substringAfter("-guarda-")
+                    .replace('-', ' ')
+                    .trim()
+                    .replaceFirstChar { c -> c.uppercase() }
+                val poster = anchor.selectFirst("img.img-desktop, img.img-mobile")
+                    ?.attr("data-src")
+                    ?.let { fixTradeUrl(it) }
+                val category = anchor.attr("data-category")
+                val type = if (category.contains("Serie", ignoreCase = true)) {
+                    TvType.TvSeries
+                } else {
+                    TvType.Movie
+                }
+
+                when (type) {
+                    TvType.TvSeries -> newTvSeriesSearchResponse(title, href) {
+                        posterUrl = poster
+                    }
+                    else -> newMovieSearchResponse(title, href) {
+                        posterUrl = poster
+                    }
+                }
+            }
+            .distinctBy { it.url }
+    }
+
+    private fun fixTradeUrl(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+        return when {
+            url.startsWith("http://") || url.startsWith("https://") -> url
+            url.startsWith("//") -> "https:$url"
+            url.startsWith("/") -> tradeBaseUrl.removeSuffix("/") + url
+            else -> "${tradeBaseUrl}$url"
+        }
+    }
+
+    private suspend fun getTradeMainPage(request: MainPageRequest): HomePageResponse {
+        val document = app.get(request.data).document
+        val items = parseTradeSearchResponses(document)
+        val list = HomePageList(
+            name = request.name,
+            list = items,
+            isHorizontalImages = false
+        )
+        return newHomePageResponse(listOf(list), hasNext = false)
+    }
+
+    private suspend fun tradeLoad(url: String): LoadResponse {
+        val detailDocument = app.get(url).document
+        val watchingUrl = detailDocument.selectFirst("a.play2, a[href*=\"/watching.html\"]")
+            ?.attr("href")
+            ?.let { fixTradeUrl(it) }
+            ?: "$url/watching.html"
+        val watchingDocument = app.get(watchingUrl).document
+
+        val title = detailDocument.selectFirst("meta[property=og:title]")?.attr("content")
+            ?.ifBlank { null }
+            ?: detailDocument.selectFirst("h1.title")?.text()?.trim()
+            ?: "StreamingCommunity"
+        val poster = detailDocument.selectFirst("meta[property=og:image]")?.attr("content")
+            ?.let { fixTradeUrl(it) }
+        val plot = detailDocument.selectFirst("meta[name=description]")?.attr("content")
+            ?.substringAfter(": ", missingDelimiterValue = "")
+            ?.trim()
+            ?.ifBlank { null }
+        val year = detailDocument.select("div.info-span span.desc")
+            .firstOrNull()
+            ?.text()
+            ?.trim()
+            ?.toIntOrNull()
+        val tags = detailDocument.select("div.extra:contains(Genere) a")
+            .mapNotNull { it.text().trim().takeIf { text -> text.isNotBlank() } }
+        val actors = detailDocument.select("div.extra:contains(Attori) a")
+            .mapNotNull { it.text().trim().takeIf { text -> text.isNotBlank() } }
+        val imdbId = Regex("tt\\d+").find(detailDocument.html())?.value
+
+        val episodeData = extractTradeEpisodes(watchingDocument)
+        if (episodeData.isNotEmpty()) {
+            val episodes = episodeData.map { ep ->
+                newEpisode(
+                    TradeLoadData(
+                        urls = ep.urls,
+                        isSeries = true,
+                        imdbId = ep.imdbId
+                    ).toJson()
+                ) {
+                    this.name = ep.name
+                    this.season = ep.season
+                    this.episode = ep.episode
+                }
+            }
+
+            return newTvSeriesLoadResponse(
+                name = title,
+                url = url,
+                type = TvType.TvSeries,
+                episodes = episodes
+            ) {
+                this.posterUrl = poster
+                this.plot = plot
+                this.year = year
+                this.tags = tags
+                this.addActors(actors)
+                imdbId?.let { this.addImdbId(it) }
+            }
+        }
+
+        val movieUrls = extractTradeMovieUrls(watchingDocument)
+        val movieData = TradeLoadData(
+            urls = movieUrls,
+            isSeries = false,
+            imdbId = imdbId
+        )
+        return newMovieLoadResponse(
+            name = title,
+            url = url,
+            type = TvType.Movie,
+            dataUrl = movieData.toJson()
+        ) {
+            this.posterUrl = poster
+            this.plot = plot
+            this.year = year
+            this.tags = tags
+            this.addActors(actors)
+            imdbId?.let { this.addImdbId(it) }
+        }
+    }
+
+    private fun extractTradeEpisodes(document: org.jsoup.nodes.Document): List<TradeEpisodeData> {
+        return document.select("div.tab-pane[id^=season-]").flatMap { seasonPane ->
+            val season = seasonPane.id().substringAfter("season-").toIntOrNull()
+            seasonPane.select("li").mapNotNull { li ->
+                val episodeAnchor = li.selectFirst("a[id^=serie-]") ?: return@mapNotNull null
+                val dataNum = episodeAnchor.attr("data-num")
+                val seasonFromNum = dataNum.substringBefore('x').toIntOrNull()
+                val episodeNumber = dataNum.substringAfter('x', "").toIntOrNull()
+                    ?: episodeAnchor.text().trim().toIntOrNull()
+                    ?: return@mapNotNull null
+                val finalSeason = seasonFromNum ?: season ?: 1
+                val urls = li.select("select.smirrors option")
+                    .mapNotNull { opt -> fixTradeUrl(opt.attr("value")) }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                if (urls.isEmpty()) return@mapNotNull null
+                val imdbId = urls.firstNotNullOfOrNull { url ->
+                    Regex("tt\\d+").find(url)?.value
+                }
+                val title = episodeAnchor.attr("data-title").trim().ifBlank {
+                    "Episodio $episodeNumber"
+                }
+                TradeEpisodeData(
+                    season = finalSeason,
+                    episode = episodeNumber,
+                    name = title,
+                    urls = urls,
+                    imdbId = imdbId
+                )
+            }
+        }
+    }
+
+    private fun extractTradeMovieUrls(document: org.jsoup.nodes.Document): List<String> {
+        val iframeUrls = document.select("iframe[src]")
+            .mapNotNull { iframe -> fixTradeUrl(iframe.attr("src")) }
+            .filter { it.isNotBlank() }
+        val scriptUrls = Regex("https?://[^\"'\\s<>]+")
+            .findAll(document.html())
+            .map { it.value }
+            .filter { url ->
+                url.contains("guardahd.stream", ignoreCase = true) ||
+                    url.contains("supervideo.", ignoreCase = true) ||
+                    url.contains("vixsrc.to", ignoreCase = true) ||
+                    url.contains("vixcloud.", ignoreCase = true)
+            }
+        return (iframeUrls + scriptUrls).distinct()
+    }
+
+    private suspend fun resolveTradeMovieUrls(loadData: TradeLoadData): List<String> {
+        val resolved = mutableListOf<String>()
+        loadData.urls.forEach { sourceUrl ->
+            if (sourceUrl.contains("guardahd.stream", ignoreCase = true)) {
+                val guardahdUrl = buildGuardahdUrl(loadData.imdbId, sourceUrl)
+                if (guardahdUrl != null) resolved += guardahdUrl
+            } else {
+                resolved += sourceUrl
+            }
+        }
+        if (resolved.isEmpty() && loadData.imdbId != null) {
+            buildGuardahdUrl(loadData.imdbId, null)?.let { resolved += it }
+        }
+        return resolved.distinct()
+    }
+
+    private fun buildGuardahdUrl(imdbId: String?, fallback: String?): String? {
+        val normalizedImdb = imdbId ?: Regex("id_imdb=(tt\\d+)").find(fallback ?: "")
+            ?.groupValues
+            ?.getOrNull(1)
+        return normalizedImdb?.let {
+            "https://guardahd.stream/index.php?task=set-movie-u&id_imdb=$it"
+        } ?: fallback
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        if (request.data.contains("streaming-community.trade")) {
+            if (page > 1) return newHomePageResponse(emptyList(), hasNext = false)
+            return getTradeMainPage(request)
+        }
+
         if (page > 1) {
             return newHomePageResponse(emptyList(), hasNext = false)
         }
@@ -274,23 +497,30 @@ class StreamingCommunity(
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
+        return search(query, 1).results
+    }
+
+    override suspend fun search(query: String, page: Int): SearchResponseList {
+        val tradeDoc = app.get(
+            tradeBaseUrl,
+            params = mapOf(
+                "do" to "search",
+                "subaction" to "search",
+                "story" to query,
+                "titleonly" to "3"
+            )
+        ).document
+        val tradeItems = parseTradeSearchResponses(tradeDoc)
+        if (tradeItems.isNotEmpty()) {
+            return newSearchResponseList(tradeItems, hasNext = false)
+        }
+
         if (headers["Cookie"].isNullOrEmpty()) {
             setupHeaders()
         }
         val url = "$mainUrl/search"
         val response = app.get(url, params = mapOf("q" to query)).body.string()
         val titles = parseBrowseTitles(response, "Search")
-        return searchResponseBuilder(titles)
-    }
-
-    override suspend fun search(query: String, page: Int): SearchResponseList {
-        if (headers["Cookie"].isNullOrEmpty()) {
-            setupHeaders()
-        }
-        val params = mutableMapOf("q" to query)
-        if (page > 1) params["page"] = page.toString()
-        val response = app.get("$mainUrl/search", params = params).body.string()
-        val titles = parseBrowseTitles(response, "Search page=$page")
         val items = searchResponseBuilder(titles)
         val hasNext = items.isNotEmpty() && items.size >= 60
         return newSearchResponseList(items, hasNext = hasNext)
@@ -309,6 +539,10 @@ class StreamingCommunity(
     }
 
     override suspend fun load(url: String): LoadResponse {
+        if (url.contains("streaming-community.trade")) {
+            return tradeLoad(url)
+        }
+
         if (headers["Cookie"].isNullOrEmpty()) {
             setupHeaders()
         }
@@ -455,6 +689,39 @@ class StreamingCommunity(
     ): Boolean {
 //        Log.d(TAG, "Load Data : $data")
         if (data.isEmpty()) return false
+        val tradeLoadData = tryParseJson<TradeLoadData>(data)
+        if (tradeLoadData != null) {
+            val candidateUrls = if (tradeLoadData.isSeries) {
+                tradeLoadData.urls
+            } else {
+                resolveTradeMovieUrls(tradeLoadData)
+            }
+            candidateUrls.forEach { candidate ->
+                when {
+                    candidate.contains("vixsrc.to", ignoreCase = true) -> {
+                        VixSrcExtractor().getUrl(
+                            url = candidate,
+                            referer = "https://vixsrc.to/",
+                            subtitleCallback = subtitleCallback,
+                            callback = callback
+                        )
+                    }
+                    candidate.contains("vixcloud", ignoreCase = true) -> {
+                        VixCloudExtractor().getUrl(
+                            url = candidate,
+                            referer = baseUrl,
+                            subtitleCallback = subtitleCallback,
+                            callback = callback
+                        )
+                    }
+                    else -> {
+                        loadExtractor(candidate, tradeBaseUrl, subtitleCallback, callback)
+                    }
+                }
+            }
+            return candidateUrls.isNotEmpty()
+        }
+
         val loadData = parseJson<LoadData>(data)
 
         val response = app.get(loadData.url).document
