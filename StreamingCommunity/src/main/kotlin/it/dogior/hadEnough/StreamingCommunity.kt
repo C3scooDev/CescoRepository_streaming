@@ -12,6 +12,7 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.addImdbId
 import com.lagradost.cloudstream3.LoadResponse.Companion.addScore
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTMDbId
 import com.lagradost.cloudstream3.LoadResponse.Companion.addTrailer
+import com.lagradost.cloudstream3.ErrorLoadingException
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.SearchResponseList
@@ -474,6 +475,16 @@ class StreamingCommunity(
         } ?: fallback
     }
 
+    private fun normalizeInputUrl(url: String): String {
+        return url
+            .trim()
+            .replace(" -", "-")
+            .replace("- ", "-")
+            .replace("%20-", "-")
+            .replace(Regex("\\s+"), "")
+            .replace("%20", "")
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         if (request.data.contains("streaming-community.trade")) {
             if (page > 1) return newHomePageResponse(emptyList(), hasNext = false)
@@ -539,19 +550,39 @@ class StreamingCommunity(
     }
 
     override suspend fun load(url: String): LoadResponse {
-        if (url.contains("streaming-community.trade")) {
-            return tradeLoad(url)
+        val normalizedUrl = normalizeInputUrl(url)
+        if (normalizedUrl.contains("streaming-community.trade")) {
+            return tradeLoad(normalizedUrl)
         }
 
         if (headers["Cookie"].isNullOrEmpty()) {
             setupHeaders()
         }
-        val actualUrl = getActualUrl(url)
+        val actualUrl = getActualUrl(normalizedUrl)
         val response = app.get(actualUrl, headers = headers)
         val responseBody = response.body.string()
 
+        val props = parseInertiaPayload(responseBody, "Load actualUrl=$actualUrl")?.props
+        if (props?.title == null) {
+            val tradeCandidateUrl = when {
+                actualUrl.contains("/titles/") -> {
+                    val slugPart = actualUrl.substringAfter("/titles/")
+                        .substringBefore("?")
+                        .substringBefore("#")
+                        .substringAfter("it/")
+                        .substringBefore('/')
+                        .substringBefore(".html")
+                    if (slugPart.isNotBlank()) "${tradeBaseUrl}titles/$slugPart.html" else null
+                }
+                else -> null
+            }
+            if (tradeCandidateUrl != null) {
+                return tradeLoad(tradeCandidateUrl)
+            }
+            throw ErrorLoadingException("Unable to parse title payload from provider response")
+        }
+
         val domain = mainUrl.substringAfter("://").substringBeforeLast("/")
-        val props = parseJson<InertiaResponse>(responseBody).props
         val title = props.title!!
         val genres = title.genres.map { it.name.capitalize() }
         val year = title.releaseDate?.substringBefore('-')?.toIntOrNull()
