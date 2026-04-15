@@ -28,6 +28,20 @@ data class LoadData(
     val episodeNumber: Int? = null,
 )
 
+data class TradeLoadData(
+    val urls: List<String>,
+    val isSeries: Boolean,
+    val imdbId: String? = null,
+)
+
+data class TradeEpisodeData(
+    val season: Int,
+    val episode: Int,
+    val name: String,
+    val urls: List<String>,
+    val imdbId: String? = null,
+)
+
 data class Section(
     @JsonProperty("name") val name: String,
     @JsonProperty("label") val label: String,
