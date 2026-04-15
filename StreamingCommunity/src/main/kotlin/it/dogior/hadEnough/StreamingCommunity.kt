@@ -512,6 +512,20 @@ class StreamingCommunity(
     }
 
     override suspend fun search(query: String, page: Int): SearchResponseList {
+        if (headers["Cookie"].isNullOrEmpty()) {
+            setupHeaders()
+        }
+        val legacyItems = runCatching {
+            val response = app.get("$mainUrl/search", params = mapOf("q" to query)).body.string()
+            val titles = parseBrowseTitles(response, "Search")
+            searchResponseBuilder(titles)
+        }.getOrElse { emptyList() }
+
+        if (legacyItems.isNotEmpty()) {
+            val hasNext = legacyItems.size >= 60
+            return newSearchResponseList(legacyItems, hasNext = hasNext)
+        }
+
         val tradeDoc = app.get(
             tradeBaseUrl,
             params = mapOf(
@@ -522,19 +536,7 @@ class StreamingCommunity(
             )
         ).document
         val tradeItems = parseTradeSearchResponses(tradeDoc)
-        if (tradeItems.isNotEmpty()) {
-            return newSearchResponseList(tradeItems, hasNext = false)
-        }
-
-        if (headers["Cookie"].isNullOrEmpty()) {
-            setupHeaders()
-        }
-        val url = "$mainUrl/search"
-        val response = app.get(url, params = mapOf("q" to query)).body.string()
-        val titles = parseBrowseTitles(response, "Search")
-        val items = searchResponseBuilder(titles)
-        val hasNext = items.isNotEmpty() && items.size >= 60
-        return newSearchResponseList(items, hasNext = hasNext)
+        return newSearchResponseList(tradeItems, hasNext = false)
     }
 
     private suspend fun getPoster(title: TitleProp): String? {
