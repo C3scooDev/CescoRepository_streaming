@@ -53,6 +53,7 @@ class StreamingCommunity(
             "X-Requested-With" to "XMLHttpRequest",
         ).toMutableMap()
         val baseUrls = listOf(
+            "https://streaming-community.trade/",
             "https://streamingunity.biz/",
             "https://streamingcommunity.biz/"
         )
