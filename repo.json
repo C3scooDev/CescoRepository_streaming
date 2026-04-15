@@ -1,0 +1,9 @@
+{
+  "name": "CescoDev Cloudstream Repository",
+  "description": "AnimeUnity, AnimeWorld and StreamingCommunity providers.",
+  "iconUrl": "https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/refs/heads/master/repo_icon.png",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/refs/heads/builds/plugins.json"
+  ]
+}
