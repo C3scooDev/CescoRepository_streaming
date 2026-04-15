@@ -5,7 +5,7 @@ Hi, I'm CescoDev. This repository now focuses on a smaller set of Cloudstream pr
 ## Install
 
 Either click on the pizza to install the repository, or go to *Settings* -> *Extensions* -> *Add repository* and paste this URL:
-`https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/builds/plugins.json`
+`https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/refs/heads/builds/repo.json`
 <p align="center">
   <img alt="alt_text" width="200px" src="pizza.png"/>
 </p>
