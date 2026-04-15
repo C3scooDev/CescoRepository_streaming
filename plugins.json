@@ -1,4 +1,70 @@
-{
-  "name": "CescoDev Repository",
-  "plugins": []
-}
+[
+    {
+        "iconUrl": "https://www.animeunity.so/apple-touch-icon.png",
+        "fileHash": "sha256-b2a39614c680adaab89f5d00fecd91cfffadd8ccb19995081e81a066ddddaf22",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/C3scooDev/CescoRepository_streaming",
+        "fileSize": 37872,
+        "status": 1,
+        "language": "it",
+        "authors": [
+            "CescoDev"
+        ],
+        "tvTypes": [
+            "AnimeMovie",
+            "Anime",
+            "OVA"
+        ],
+        "version": 15,
+        "internalName": "AnimeUnity",
+        "description": "Anime from AnimeUnity",
+        "url": "https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/builds/AnimeUnity.cs3",
+        "name": "AnimeUnity"
+    },
+    {
+        "iconUrl": "https://static.animeworld.ac/assets/images/favicon/android-icon-192x192.png?s",
+        "fileHash": "sha256-a2e31b73a6b1412c9e823bd6f3573113a8152f369268f05d81e49dd9256c78e7",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/C3scooDev/CescoRepository_streaming",
+        "fileSize": 40619,
+        "status": 1,
+        "language": "it",
+        "authors": [
+            "Gian-Fr",
+            "CescoDev"
+        ],
+        "tvTypes": [
+            "AnimeMovie",
+            "Anime",
+            "OVA"
+        ],
+        "version": 16,
+        "internalName": "AnimeWorld",
+        "description": "Anime from AnimeWorld. This plugin is a fork of the AnimeWorld plugin in the ItalianProvider repo",
+        "url": "https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/builds/AnimeWorld.cs3",
+        "name": "AnimeWorld"
+    },
+    {
+        "iconUrl": "https://streaming-community.trade/templates/streaming-community/images/icons/apple-touch-icon.png",
+        "fileHash": "sha256-15ccf50c58cc7aa3ef1a3426c760bc598e041077f77adb41e29e43d4bef2a714",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/C3scooDev/CescoRepository_streaming",
+        "fileSize": 56904,
+        "status": 1,
+        "language": "it",
+        "authors": [
+            "CescoDev"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "Documentary",
+            "Cartoon"
+        ],
+        "version": 27,
+        "internalName": "StreamingCommunity",
+        "description": "TV Shows and Movies from StreamingCommunity",
+        "url": "https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/builds/StreamingCommunity.cs3",
+        "name": "StreamingCommunity"
+    }
+]
