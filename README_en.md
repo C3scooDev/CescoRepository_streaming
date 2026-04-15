@@ -18,7 +18,7 @@ These are the plugins currently available:
 |--------------------|-------------------------------|:------------------------------------:|:------------:|:-----------:|-----------|
 | AnimeUnity         | https://www.animeunity.so     |                Anime                 |     🇮🇹     |      ✅      |           |
 | AnimeWorld         | https://www.animeworld.ac     |                Anime                 |     🇮🇹     |      ✅      |           |
-| StreamingCommunity | https://streamingunity.biz/en | Movies, TV Shows, Cartoons, Docs    |     🇮🇹     |      ✅      |           |
+| StreamingCommunity | https://streaming-community.trade/ | Movies, TV Shows, Cartoons, Docs    |     🇮🇹     |      ✅      |           |
 
 [All cloudstream repositories](https://rentry.org/cs3-repos)
 
