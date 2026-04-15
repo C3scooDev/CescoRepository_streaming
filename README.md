@@ -6,7 +6,9 @@ Ciao, questa è la repository Cloudstream di CescoDev.
 ## Installazione
 
 Clicca sulla pizza per installare la repo oppure vai in *Impostazioni* -> *Estensioni* -> *Aggiungi
-repository* e nel campo URL scrivi **CescoDev**
+repository* e incolla questo URL:
+
+`https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/builds/plugins.json`
 <p align="center">
   <img alt="alt_text" width="200px" src="pizza.png"/>
 </p>
