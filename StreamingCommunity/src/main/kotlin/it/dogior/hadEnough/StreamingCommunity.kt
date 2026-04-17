@@ -41,7 +41,7 @@ class StreamingCommunity(
     override var lang: String = "it",
 ) : MainAPI() {
     private var baseUrl = Companion.baseUrls.first()
-    override var mainUrl = baseUrl + lang
+    override var mainUrl = Companion.mainUrlFor(baseUrl, lang)
     override var name = Companion.name
     override var supportedTypes =
         setOf(TvType.Movie, TvType.TvSeries, TvType.Cartoon, TvType.Documentary)
@@ -62,11 +62,19 @@ class StreamingCommunity(
             "X-Requested-With" to "XMLHttpRequest",
         ).toMutableMap()
         const val tradeBaseUrl = "https://streaming-community.trade/"
+        /** Il sito `.trade` è DLE/HTML: non ha `/it/archive` In né API Laravel; va provato per primo. */
         val baseUrls = listOf(
+            tradeBaseUrl,
             "https://streamingunity.biz/",
             "https://streamingcommunity.biz/",
-            "https://streaming-community.trade/"
         )
+
+        fun isDleTradeHost(url: String): Boolean =
+            url.contains("streaming-community.trade", ignoreCase = true)
+
+        fun mainUrlFor(base: String, langSegment: String): String =
+            if (isDleTradeHost(base)) base.removeSuffix("/") else base + langSegment
+
         var name = "StreamingCommunity"
         val TAG = "SCommunity"
     }
@@ -188,6 +196,17 @@ class StreamingCommunity(
 
     private suspend fun setupHeaders() {
         for (candidateBaseUrl in Companion.baseUrls.distinct()) {
+            if (Companion.isDleTradeHost(candidateBaseUrl)) {
+                baseUrl = candidateBaseUrl
+                mainUrl = Companion.mainUrlFor(candidateBaseUrl, lang)
+                headers["Cookie"] = "dle=1"
+                decodedXsrfToken = ""
+                inertiaVersion = ""
+                headers["X-Inertia-Version"] = inertiaVersion
+                Log.d(TAG, "Bootstrap DLE trade host; Laravel session skipped")
+                return
+            }
+
             val candidateMainUrl = candidateBaseUrl + lang
             val archiveResponse = runCatching { app.get("$candidateMainUrl/archive") }
                 .onFailure { Log.e(TAG, "Headers setup failed for $candidateBaseUrl archive: ${it.message}") }
@@ -515,11 +534,15 @@ class StreamingCommunity(
         if (headers["Cookie"].isNullOrEmpty()) {
             setupHeaders()
         }
-        val legacyItems = runCatching {
-            val response = app.get("$mainUrl/search", params = mapOf("q" to query)).body.string()
-            val titles = parseBrowseTitles(response, "Search")
-            searchResponseBuilder(titles)
-        }.getOrElse { emptyList() }
+        val legacyItems = if (Companion.isDleTradeHost(mainUrl)) {
+            emptyList()
+        } else {
+            runCatching {
+                val response = app.get("$mainUrl/search", params = mapOf("q" to query)).body.string()
+                val titles = parseBrowseTitles(response, "Search")
+                searchResponseBuilder(titles)
+            }.getOrElse { emptyList() }
+        }
 
         if (legacyItems.isNotEmpty()) {
             val hasNext = legacyItems.size >= 60
