@@ -526,11 +526,11 @@ class StreamingCommunity(
         return newHomePageResponse(lazySections, hasNext = false)
     }
 
-    override suspend fun search(query: String): List<SearchResponse> {
-        return search(query, 1).results
-    }
-
-    override suspend fun search(query: String, page: Int): SearchResponseList {
+    /** Evita `.results` su [SearchResponseList]: nella dipendenza `pre-release` il tipo può differire. */
+    private suspend fun searchItems(
+        query: String,
+        @Suppress("UNUSED_PARAMETER") page: Int,
+    ): Pair<List<SearchResponse>, Boolean> {
         if (headers["Cookie"].isNullOrEmpty()) {
             setupHeaders()
         }
@@ -546,7 +546,7 @@ class StreamingCommunity(
 
         if (legacyItems.isNotEmpty()) {
             val hasNext = legacyItems.size >= 60
-            return newSearchResponseList(legacyItems, hasNext = hasNext)
+            return Pair(legacyItems, hasNext)
         }
 
         val tradeDoc = app.get(
@@ -559,7 +559,16 @@ class StreamingCommunity(
             )
         ).document
         val tradeItems = parseTradeSearchResponses(tradeDoc)
-        return newSearchResponseList(tradeItems, hasNext = false)
+        return Pair(tradeItems, false)
+    }
+
+    override suspend fun search(query: String): List<SearchResponse> {
+        return searchItems(query, 1).first
+    }
+
+    override suspend fun search(query: String, page: Int): SearchResponseList {
+        val (items, hasNext) = searchItems(query, page)
+        return newSearchResponseList(items, hasNext = hasNext)
     }
 
     private suspend fun getPoster(title: TitleProp): String? {
