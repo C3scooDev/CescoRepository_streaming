@@ -5,6 +5,9 @@ concurrency:
   group: "build"
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:  # Allows manual triggering
   push:
@@ -15,7 +18,6 @@ on:
     paths-ignore:
       - '*.md'
       - '*.png'
-      - '*.yml'
 
 jobs:
   build:
@@ -31,6 +33,7 @@ jobs:
         with:
           ref: "builds"
           path: "builds"
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Clean old builds
         run: |
@@ -60,12 +63,17 @@ jobs:
 
       - name: Build Plugins
         run: |
-          cd $GITHUB_WORKSPACE/src
+          set -e
+          cd "$GITHUB_WORKSPACE/src"
           chmod +x gradlew
           ./gradlew make makePluginsJson
-          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds
-          cp build/plugins.json $GITHUB_WORKSPACE/builds
-          cp repo.json $GITHUB_WORKSPACE/builds
+          # bash non espande ** senza globstar; copiamo dai moduli plugin
+          for mod in AnimeUnity AnimeWorld StreamingCommunity; do
+            find "$mod" -type f -name '*.cs3' -exec cp -f {} "$GITHUB_WORKSPACE/builds/" \;
+          done
+          test "$(find "$GITHUB_WORKSPACE/builds" -maxdepth 1 -name '*.cs3' | wc -l)" -ge 1
+          cp -f build/plugins.json "$GITHUB_WORKSPACE/builds/"
+          cp -f build/repo.json "$GITHUB_WORKSPACE/builds/"
 
       - name: Push builds
         run: |
