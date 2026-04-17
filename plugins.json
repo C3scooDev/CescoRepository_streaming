@@ -1,10 +1,10 @@
 [
     {
         "iconUrl": "https://www.animeunity.so/apple-touch-icon.png",
-        "fileHash": "sha256-b2a39614c680adaab89f5d00fecd91cfffadd8ccb19995081e81a066ddddaf22",
+        "fileHash": "sha256-f75b6c8265569c03288879e3e4b0c94cb13208fd9919bc12220cd41a49985cf9",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/C3scooDev/CescoRepository_streaming",
-        "fileSize": 37872,
+        "fileSize": 37879,
         "status": 1,
         "language": "it",
         "authors": [
@@ -23,10 +23,10 @@
     },
     {
         "iconUrl": "https://static.animeworld.ac/assets/images/favicon/android-icon-192x192.png?s",
-        "fileHash": "sha256-a2e31b73a6b1412c9e823bd6f3573113a8152f369268f05d81e49dd9256c78e7",
+        "fileHash": "sha256-a29ebc3eb41d65c767135ad4eaa1976d3c337453729bf5800ea9c540bf8d9193",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/C3scooDev/CescoRepository_streaming",
-        "fileSize": 40619,
+        "fileSize": 40603,
         "status": 1,
         "language": "it",
         "authors": [
@@ -45,11 +45,11 @@
         "name": "AnimeWorld"
     },
     {
-        "iconUrl": "https://streaming-community.trade/templates/streaming-community/images/icons/apple-touch-icon.png",
-        "fileHash": "sha256-15ccf50c58cc7aa3ef1a3426c760bc598e041077f77adb41e29e43d4bef2a714",
+        "iconUrl": "https://streamingunity.biz/apple-touch-icon.png?v=2",
+        "fileHash": "sha256-8fb6921aad08914f17e26cb91d35c669bf29f891ecce9d7e6beebe8a0dd43100",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/C3scooDev/CescoRepository_streaming",
-        "fileSize": 56904,
+        "fileSize": 72019,
         "status": 1,
         "language": "it",
         "authors": [
@@ -61,7 +61,7 @@
             "Documentary",
             "Cartoon"
         ],
-        "version": 27,
+        "version": 28,
         "internalName": "StreamingCommunity",
         "description": "TV Shows and Movies from StreamingCommunity",
         "url": "https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/builds/StreamingCommunity.cs3",
