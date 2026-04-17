@@ -74,6 +74,12 @@ jobs:
           n=$(find "$GITHUB_WORKSPACE/builds" -maxdepth 1 -name '*.cs3' | wc -l)
           echo "Copiati in builds/: $n file .cs3"
           test "$n" -ge 1
+          # CloudStream usa repo.json come manifest ("Add repository"); Gradle genera solo plugins.json.
+          PLUGINS_URL="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/refs/heads/builds/plugins.json"
+          jq -n \
+            --arg url "$PLUGINS_URL" \
+            '{name: "CescoRepository streaming", description: "Estensioni CloudStream (build CI).", manifestVersion: 1, pluginLists: [$url]}' \
+            > build/repo.json
           cp -f build/plugins.json "$GITHUB_WORKSPACE/builds/"
           cp -f build/repo.json "$GITHUB_WORKSPACE/builds/"
 
