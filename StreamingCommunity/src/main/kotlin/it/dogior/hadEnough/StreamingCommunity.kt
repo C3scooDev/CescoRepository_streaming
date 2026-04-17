@@ -617,7 +617,7 @@ class StreamingCommunity(
         }
 
         val domain = mainUrl.substringAfter("://").substringBeforeLast("/")
-        val title = props.title!!
+        val title = props.title
         val genres = title.genres.map { it.name.capitalize() }
         val year = title.releaseDate?.substringBefore('-')?.toIntOrNull()
         val related = props.sliders?.getOrNull(0)
