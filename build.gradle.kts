@@ -12,11 +12,12 @@ buildscript {
     }
 
     dependencies {
-        classpath("com.android.tools.build:gradle:8.13.0")
+        // 8.13.2+: D8/R8 allineati ai metadati Kotlin 2.3 (8.13.0 dava errori in compileDex).
+        classpath("com.android.tools.build:gradle:8.13.2")
         // Cloudstream gradle plugin which makes everything work and builds plugins
         classpath("com.github.recloudstream:gradle:7cc64f92d8")
-        // Kotlin 2.3+ non è ancora gestita correttamente da D8/R8 in AGP 8.13 (compileDex fallisce).
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.21")
+        // Deve leggere cloudstream3:pre-release (metadati Kotlin 2.3.x nel jar stub).
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.0")
     }
 }
 
