@@ -45,11 +45,11 @@
         "name": "AnimeWorld"
     },
     {
-        "iconUrl": "https://streamingunity.biz/apple-touch-icon.png?v=2",
-        "fileHash": "sha256-8fb6921aad08914f17e26cb91d35c669bf29f891ecce9d7e6beebe8a0dd43100",
+        "iconUrl": "https://streamingcommunityz.ooo/apple-touch-icon.png?v=2",
+        "fileHash": "sha256-dcacbb504cc32bd336edbd9af94b31870a71b3b1092f582c6bcd7c2ba157e530",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/C3scooDev/CescoRepository_streaming",
-        "fileSize": 72019,
+        "fileSize": 71995,
         "status": 1,
         "language": "it",
         "authors": [
