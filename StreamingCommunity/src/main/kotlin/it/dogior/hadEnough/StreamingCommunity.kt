@@ -61,8 +61,8 @@ class StreamingCommunity(
             "X-Inertia-Version" to inertiaVersion,
             "X-Requested-With" to "XMLHttpRequest",
         ).toMutableMap()
-        const val tradeBaseUrl = "https://streaming-community.trade/"
-        /** Il sito `.trade` è DLE/HTML: non ha `/it/archive` In né API Laravel; va provato per primo. */
+        const val tradeBaseUrl = "https://streamingcommunityz.ooo/"
+        /** Il sito `.ooo` è DLE/HTML: non ha `/it/archive` né API Laravel; va provato per primo. */
         val baseUrls = listOf(
             tradeBaseUrl,
             "https://streamingunity.biz/",
@@ -70,7 +70,8 @@ class StreamingCommunity(
         )
 
         fun isDleTradeHost(url: String): Boolean =
-            url.contains("streaming-community.trade", ignoreCase = true)
+            url.contains("streamingcommunityz.ooo", ignoreCase = true) ||
+                url.contains("streaming-community.trade", ignoreCase = true)
 
         fun mainUrlFor(base: String, langSegment: String): String =
             if (isDleTradeHost(base)) base.removeSuffix("/") else base + langSegment
@@ -505,7 +506,7 @@ class StreamingCommunity(
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        if (request.data.contains("streaming-community.trade")) {
+        if (Companion.isDleTradeHost(request.data)) {
             if (page > 1) return newHomePageResponse(emptyList(), hasNext = false)
             return getTradeMainPage(request)
         }
@@ -585,7 +586,7 @@ class StreamingCommunity(
 
     override suspend fun load(url: String): LoadResponse {
         val normalizedUrl = normalizeInputUrl(url)
-        if (normalizedUrl.contains("streaming-community.trade")) {
+        if (Companion.isDleTradeHost(normalizedUrl)) {
             return tradeLoad(normalizedUrl)
         }
 

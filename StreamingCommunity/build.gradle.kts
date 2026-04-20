@@ -28,7 +28,7 @@ cloudstream {
     requiresResources = true
     language = "it"
 
-    iconUrl = "https://streamingunity.biz/apple-touch-icon.png?v=2"
+    iconUrl = "https://streamingcommunityz.ooo/apple-touch-icon.png?v=2"
 }
 
 android {
