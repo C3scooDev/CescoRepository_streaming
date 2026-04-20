@@ -549,13 +549,13 @@ class StreamingCommunity(
     /** Evita `.results` su [SearchResponseList]: nella dipendenza `pre-release` il tipo può differire. */
     private suspend fun searchItems(
         query: String,
-        @Suppress("UNUSED_PARAMETER") page: Int,
+        page: Int,
     ): Pair<List<SearchResponse>, Boolean> {
         if (headers["Cookie"].isNullOrEmpty()) {
             setupHeaders()
         }
         val legacyItems = if (Companion.isDleTradeHost(mainUrl)) {
-            searchTradeFromHomeSliders(query)
+            searchTradeArchive(query, page)
         } else {
             runCatching {
                 val response = app.get("$mainUrl/search", params = mapOf("q" to query)).body.string()
@@ -580,6 +580,30 @@ class StreamingCommunity(
         ).document
         val tradeItems = parseTradeSearchResponses(tradeDoc)
         return Pair(tradeItems, false)
+    }
+
+    private suspend fun searchTradeArchive(query: String, page: Int): List<SearchResponse> {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isEmpty()) return emptyList()
+
+        val archivePayload = runCatching {
+            app.get(
+                "${tradeBaseUrl}${lang}/archive",
+                params = mapOf(
+                    "search" to normalizedQuery,
+                    "page" to page.toString()
+                )
+            ).body.string()
+        }.getOrNull()
+        val titles = archivePayload
+            ?.let { parseBrowseTitles(it, "Trade archive search page=$page query=$normalizedQuery") }
+            .orEmpty()
+        if (titles.isNotEmpty()) {
+            return searchResponseBuilder(titles)
+        }
+
+        // Secondary fallback when archive is temporarily unavailable.
+        return searchTradeFromHomeSliders(normalizedQuery)
     }
 
     private suspend fun searchTradeFromHomeSliders(query: String): List<SearchResponse> {

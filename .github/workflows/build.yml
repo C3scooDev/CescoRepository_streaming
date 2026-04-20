@@ -42,13 +42,13 @@ jobs:
           rm -f $GITHUB_WORKSPACE/builds/repo.json
 
       - name: Setup Java 17
-        uses: actions/setup-java@v4.6.0
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3.2.2
+        uses: android-actions/setup-android@v4
 
       - name: Access Secrets
         env:
