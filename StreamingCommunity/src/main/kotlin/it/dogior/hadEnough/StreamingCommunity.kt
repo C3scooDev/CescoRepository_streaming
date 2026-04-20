@@ -330,13 +330,32 @@ class StreamingCommunity(
     }
 
     private suspend fun getTradeMainPage(request: MainPageRequest): HomePageResponse {
+        val homepagePayload = runCatching { app.get(tradeBaseUrl).body.string() }
+            .getOrNull()
+        val sliders = homepagePayload
+            ?.let { extractInertiaPageJson(it) }
+            ?.let { parseInertiaPayload(it, "Trade main page") }
+            ?.props
+            ?.sliders
+            .orEmpty()
+
+        val sliderSections = sliders.mapNotNull { slider ->
+            val items = searchResponseBuilder(slider.titles)
+            if (items.isEmpty()) return@mapNotNull null
+            HomePageList(
+                name = slider.label.ifBlank { slider.name },
+                list = items,
+                isHorizontalImages = false
+            )
+        }
+        if (sliderSections.isNotEmpty()) {
+            return newHomePageResponse(sliderSections, hasNext = false)
+        }
+
+        // Fallback: parse static cards when slider payload is not available.
         val document = app.get(request.data).document
         val items = parseTradeSearchResponses(document)
-        val list = HomePageList(
-            name = request.name,
-            list = items,
-            isHorizontalImages = false
-        )
+        val list = HomePageList(name = request.name, list = items, isHorizontalImages = false)
         return newHomePageResponse(listOf(list), hasNext = false)
     }
 
@@ -536,7 +555,7 @@ class StreamingCommunity(
             setupHeaders()
         }
         val legacyItems = if (Companion.isDleTradeHost(mainUrl)) {
-            emptyList()
+            searchTradeFromHomeSliders(query)
         } else {
             runCatching {
                 val response = app.get("$mainUrl/search", params = mapOf("q" to query)).body.string()
@@ -561,6 +580,27 @@ class StreamingCommunity(
         ).document
         val tradeItems = parseTradeSearchResponses(tradeDoc)
         return Pair(tradeItems, false)
+    }
+
+    private suspend fun searchTradeFromHomeSliders(query: String): List<SearchResponse> {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isEmpty()) return emptyList()
+
+        val homepagePayload = runCatching { app.get(tradeBaseUrl).body.string() }
+            .getOrNull()
+            ?: return emptyList()
+        val sliders = extractInertiaPageJson(homepagePayload)
+            ?.let { parseInertiaPayload(it, "Trade search fallback") }
+            ?.props
+            ?.sliders
+            .orEmpty()
+        if (sliders.isEmpty()) return emptyList()
+
+        val allTitles = sliders.flatMap { it.titles }
+        val matchedTitles = allTitles.filter {
+            it.name.contains(normalizedQuery, ignoreCase = true)
+        }
+        return searchResponseBuilder(matchedTitles).distinctBy { it.url }
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
