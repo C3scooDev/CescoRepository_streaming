@@ -600,24 +600,47 @@ class StreamingCommunity(
         Log.e(TAG, "VixCloud fallito per url=$url — ${lastError?.message}")
     }
 
-    private suspend fun tryLoadExtractorDual(
+    /** Conta i link effettivamente emessi (Cloudstream mostra "nessun link" se il callback non viene chiamato). */
+    private class LinkEmitCounter(private val downstream: (ExtractorLink) -> Unit) {
+        var total = 0
+            private set
+
+        fun emit(link: ExtractorLink) {
+            total++
+            downstream(link)
+        }
+    }
+
+    private suspend fun tryLoadExtractorMulti(
         url: String,
         subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit,
+        emit: LinkEmitCounter,
+        referers: List<String>,
     ) {
-        val referers = listOf(
-            tradeBaseUrl,
-            baseUrl.trimEnd('/') + "/",
-        ).distinct()
         var lastError: Throwable? = null
-        for (ref in referers) {
+        for (ref in referers.distinct()) {
             runCatching {
-                loadExtractor(url, ref, subtitleCallback, callback)
-            }.onSuccess { return }
-                .onFailure { lastError = it }
+                loadExtractor(url, ref, subtitleCallback, emit::emit)
+            }.onFailure { lastError = it }
         }
-        Log.e(TAG, "loadExtractor fallito per url=$url — ${lastError?.message}")
+        if (lastError != null) {
+            Log.e(TAG, "loadExtractor errori per url=$url — ${lastError.message}")
+        }
     }
+
+    private fun referersForGenericHost(url: String): List<String> = buildList {
+        add(tradeBaseUrl.trimEnd('/') + "/")
+        add(baseUrl.trimEnd('/') + "/")
+        if (url.contains("supervideo.", ignoreCase = true)) {
+            add("https://supervideo.cc/")
+        }
+    }.distinct()
+
+    private fun referersForVixsrcPage(): List<String> = listOf(
+        "https://vixsrc.to/",
+        tradeBaseUrl.trimEnd('/') + "/",
+        baseUrl.trimEnd('/') + "/",
+    ).distinct()
 
     /** Fonti guardahd: link estratti dalla pagina + URL guardahd originale (comportamento storico). */
     private suspend fun collectGuardahdUrls(candidate: String): List<String> {
@@ -632,19 +655,47 @@ class StreamingCommunity(
     private suspend fun dispatchTradeStreamSource(
         sourceUrl: String,
         subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit,
+        counter: LinkEmitCounter,
     ) {
-        runCatching {
-            when {
-                sourceUrl.contains("vixsrc.to", ignoreCase = true) ->
-                    tryVixSrcExtract(sourceUrl, subtitleCallback, callback)
-                sourceUrl.contains("vixcloud", ignoreCase = true) ->
-                    tryVixCloudExtract(sourceUrl, subtitleCallback, callback)
-                else ->
-                    tryLoadExtractorDual(sourceUrl, subtitleCallback, callback)
+        when {
+            sourceUrl.contains("vixsrc.to", ignoreCase = true) -> {
+                // vixsrc è ora SPA: l'HTML statico non contiene più masterPlaylist — prova prima gli extractor dell'app.
+                val before = counter.total
+                tryLoadExtractorMulti(
+                    sourceUrl,
+                    subtitleCallback,
+                    counter,
+                    referersForVixsrcPage(),
+                )
+                if (counter.total == before) {
+                    tryVixSrcExtract(
+                        sourceUrl,
+                        subtitleCallback,
+                        counter::emit,
+                        secondaryReferer = tradeBaseUrl.trimEnd('/') + "/",
+                    )
+                }
             }
-        }.onFailure {
-            Log.e(TAG, "dispatchTradeStreamSource url=$sourceUrl: ${it.message}")
+            sourceUrl.contains("vixcloud", ignoreCase = true) -> {
+                val before = counter.total
+                tryLoadExtractorMulti(
+                    sourceUrl,
+                    subtitleCallback,
+                    counter,
+                    listOf(tradeBaseUrl.trimEnd('/') + "/", baseUrl.trimEnd('/') + "/").distinct(),
+                )
+                if (counter.total == before) {
+                    tryVixCloudExtract(sourceUrl, subtitleCallback, counter::emit)
+                }
+            }
+            else -> {
+                tryLoadExtractorMulti(
+                    sourceUrl,
+                    subtitleCallback,
+                    counter,
+                    referersForGenericHost(sourceUrl),
+                )
+            }
         }
     }
 
@@ -976,6 +1027,7 @@ class StreamingCommunity(
         if (data.isEmpty()) return false
         val tradeLoadData = tryParseJson<TradeLoadData>(data)
         if (tradeLoadData != null) {
+            val counter = LinkEmitCounter(callback)
             val rawCandidateUrls = if (tradeLoadData.isSeries) {
                 tradeLoadData.urls
             } else {
@@ -992,37 +1044,60 @@ class StreamingCommunity(
                     listOf(candidate)
                 }
                 urlsToResolve.forEach { sourceUrl ->
-                    dispatchTradeStreamSource(sourceUrl, subtitleCallback, callback)
+                    dispatchTradeStreamSource(sourceUrl, subtitleCallback, counter)
                 }
             }
-            return candidateUrls.isNotEmpty()
+            return counter.total > 0
         }
 
         val loadData = parseJson<LoadData>(data)
 
+        val counter = LinkEmitCounter(callback)
         val response = app.get(loadData.url).document
-        val iframeSrc = response.select("iframe").attr("src")
+        val iframeSrc = response.select("iframe").attr("src").trim()
 
-        VixCloudExtractor().getUrl(
-            url = iframeSrc,
-            referer = baseUrl,
-            subtitleCallback = subtitleCallback,
-            callback = callback
-        )
+        if (iframeSrc.isNotBlank()) {
+            val beforeCloud = counter.total
+            tryLoadExtractorMulti(
+                iframeSrc,
+                subtitleCallback,
+                counter,
+                listOf(baseUrl.trimEnd('/') + "/", tradeBaseUrl.trimEnd('/') + "/").distinct(),
+            )
+            if (counter.total == beforeCloud) {
+                runCatching {
+                    VixCloudExtractor().getUrl(
+                        url = iframeSrc,
+                        referer = baseUrl,
+                        subtitleCallback = subtitleCallback,
+                        callback = counter::emit,
+                    )
+                }.onFailure { Log.e(TAG, "VixCloud iframe: ${it.message}") }
+            }
+        }
 
-        val vixsrcUrl = if(loadData.type == "movie"){
+        val vixsrcUrl = if (loadData.type == "movie") {
             "https://vixsrc.to/movie/${loadData.tmdbId}"
-        } else{
+        } else {
             "https://vixsrc.to/tv/${loadData.tmdbId}/${loadData.seasonNumber}/${loadData.episodeNumber}"
         }
 
-        tryVixSrcExtract(
-            url = vixsrcUrl,
-            subtitleCallback = subtitleCallback,
-            callback = callback,
-            secondaryReferer = baseUrl.trimEnd('/') + "/",
+        val beforeVix = counter.total
+        tryLoadExtractorMulti(
+            vixsrcUrl,
+            subtitleCallback,
+            counter,
+            referersForVixsrcPage(),
         )
+        if (counter.total == beforeVix) {
+            tryVixSrcExtract(
+                url = vixsrcUrl,
+                subtitleCallback = subtitleCallback,
+                callback = counter::emit,
+                secondaryReferer = baseUrl.trimEnd('/') + "/",
+            )
+        }
 
-        return true
+        return counter.total > 0
     }
 }
