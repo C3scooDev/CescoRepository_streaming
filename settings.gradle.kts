@@ -7,5 +7,6 @@ rootProject.name = "CloudstreamPlugins"
 include(
     "AnimeUnity",
     "AnimeWorld",
-    "StreamingCommunity"
+    "StreamingCommunity",
+    "MoviesNChill",
 )
