@@ -42,10 +42,56 @@ class VixSrcExtractor : ExtractorApi() {
 
     }
 
+    /**
+     * Le URL "watch" (/tv/..., /movie/...) sono una SPA Next.js senza masterPlaylist nell'HTML.
+     * L'API ufficiale restituisce `src` verso `/embed/...` dove è ancora presente window.masterPlaylist.
+     */
+    private suspend fun resolveToEmbedPageUrl(watchOrEmbedUrl: String): String {
+        if (watchOrEmbedUrl.contains("/embed/", ignoreCase = true)) {
+            return watchOrEmbedUrl
+        }
+        val httpUrl = watchOrEmbedUrl.toHttpUrl()
+        if (!httpUrl.host.equals("vixsrc.to", ignoreCase = true)) {
+            return watchOrEmbedUrl
+        }
+        val segments = httpUrl.encodedPath.trim('/').split('/').filter { it.isNotBlank() }
+        if (segments.size < 2) return watchOrEmbedUrl
+        val kind = segments.first()
+        if (kind != "tv" && kind != "movie") return watchOrEmbedUrl
+
+        val apiPath = "/api/" + segments.joinToString("/")
+        val query = httpUrl.query
+        val apiUrl = "${httpUrl.scheme}://${httpUrl.host}$apiPath" +
+            if (query.isNullOrBlank()) "" else "?$query"
+
+        val headers = mutableMapOf(
+            "Accept" to "application/json",
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/133.0",
+            "Referer" to (referer ?: "https://vixsrc.to/"),
+        )
+        val jsonText = runCatching { app.get(apiUrl, headers = headers).text }
+            .getOrElse {
+                Log.e(TAG, "API vixsrc fallita apiUrl=$apiUrl err=${it.message}")
+                return watchOrEmbedUrl
+            }
+        val src = runCatching { JSONObject(jsonText).optString("src", "") }.getOrElse { "" }
+        if (src.isBlank()) return watchOrEmbedUrl
+
+        return when {
+            src.startsWith("http://") || src.startsWith("https://") -> src
+            src.startsWith("//") -> "https:$src"
+            else -> "${httpUrl.scheme}://${httpUrl.host}$src"
+        }
+    }
+
     private suspend fun getPlaylistLink(url: String): String {
         Log.d(TAG, "Item url: $url")
+        val embedPageUrl = resolveToEmbedPageUrl(url)
+        if (embedPageUrl != url) {
+            Log.d(TAG, "Risolto embed vixsrc: $embedPageUrl")
+        }
 
-        val script = getScript(url)
+        val script = getScript(embedPageUrl)
         val masterPlaylist = script.getJSONObject("masterPlaylist")
         val masterPlaylistParams = masterPlaylist.getJSONObject("params")
         val token = masterPlaylistParams.getString("token")
@@ -88,8 +134,10 @@ class VixSrcExtractor : ExtractorApi() {
 
 //        Log.d(TAG, iframe.document.toString())
         val scripts = resp.select("script")
-        val script =
-            scripts.find { it.data().contains("masterPlaylist") }!!.data().replace("\n", "\t")
+        val script = scripts.find { it.data().contains("masterPlaylist") }
+            ?.data()
+            ?.replace("\n", "\t")
+            ?: error("masterPlaylist assente nella pagina embed url=$url (vixsrc ha cambiato markup?)")
 
         val scriptJson = getSanitisedScript(script)
         Log.d(TAG, "Script Json: $scriptJson")
