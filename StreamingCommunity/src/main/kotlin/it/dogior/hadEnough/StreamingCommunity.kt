@@ -61,15 +61,17 @@ class StreamingCommunity(
             "X-Inertia-Version" to inertiaVersion,
             "X-Requested-With" to "XMLHttpRequest",
         ).toMutableMap()
-        const val tradeBaseUrl = "https://streamingcommunityz.ooo/"
-        /** Il sito `.ooo` è DLE/HTML: non ha `/it/archive` né API Laravel; va provato per primo. */
+        const val tradeBaseUrl = "https://streaming-community.surf/"
+        /** Il sito `.surf` è DLE/HTML: non ha API Laravel; va provato per primo. */
         val baseUrls = listOf(
             tradeBaseUrl,
+            "https://streamingcommunityz.ooo/",
             "https://streamingunity.biz/",
             "https://streamingcommunity.biz/",
         )
 
         fun isDleTradeHost(url: String): Boolean =
+            url.contains("streaming-community.surf", ignoreCase = true) ||
             url.contains("streamingcommunityz.ooo", ignoreCase = true) ||
                 url.contains("streaming-community.trade", ignoreCase = true)
 
@@ -477,6 +479,12 @@ class StreamingCommunity(
         val iframeUrls = document.select("iframe[src]")
             .mapNotNull { iframe -> fixTradeUrl(iframe.attr("src")) }
             .filter { it.isNotBlank() }
+        val mirrorUrls = document.select(".mirrors span[data-link], .mirrors [data-link]")
+            .mapNotNull { mirror -> fixTradeUrl(mirror.attr("data-link")) }
+            .filter { it.isNotBlank() }
+        val optionUrls = document.select("select.smirrors option[value]")
+            .mapNotNull { option -> fixTradeUrl(option.attr("value")) }
+            .filter { it.isNotBlank() }
         val scriptUrls = Regex("https?://[^\"'\\s<>]+")
             .findAll(document.html())
             .map { it.value }
@@ -486,7 +494,7 @@ class StreamingCommunity(
                     url.contains("vixsrc.to", ignoreCase = true) ||
                     url.contains("vixcloud.", ignoreCase = true)
             }
-        return (iframeUrls + scriptUrls).distinct()
+        return (iframeUrls + mirrorUrls + optionUrls + scriptUrls).distinct()
     }
 
     private suspend fun resolveTradeMovieUrls(loadData: TradeLoadData): List<String> {
@@ -595,6 +603,18 @@ class StreamingCommunity(
                 )
             ).body.string()
         }.getOrNull()
+            ?: runCatching {
+                app.get(
+                    "${tradeBaseUrl}archivio/",
+                    params = mapOf(
+                        "story" to normalizedQuery,
+                        "do" to "search",
+                        "subaction" to "search",
+                        "titleonly" to "3",
+                        "page" to page.toString()
+                    )
+                ).body.string()
+            }.getOrNull()
         val titles = archivePayload
             ?.let { parseBrowseTitles(it, "Trade archive search page=$page query=$normalizedQuery") }
             .orEmpty()
