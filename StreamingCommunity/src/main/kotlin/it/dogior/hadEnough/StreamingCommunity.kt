@@ -331,6 +331,49 @@ class StreamingCommunity(
         }
     }
 
+    /**
+     * DLE trade: `.mirrors` + player guardahd (`_player-mirrors` con `<li data-link>`).
+     * Senza il secondo gruppo, restava solo l'iframe attivo e non mixdrop/streamhg in `data-link`.
+     */
+    private val tradeMirrorDataLinkSelectors =
+        ".mirrors span[data-link], .mirrors [data-link], " +
+            "._player-mirrors li[data-link], ul._player-mirrors li[data-link]"
+
+    /** URL in script/HTML da considerare come possibili sorgenti (estratto regex su `document.html()`). */
+    private fun isStreamingScriptAbsoluteUrl(url: String, allowGuardahd: Boolean): Boolean {
+        val u = url.trim().lowercase()
+        if (!u.startsWith("http://") && !u.startsWith("https://")) return false
+        if (u.contains("youtube.com") || u.contains("youtu.be") || u.contains("yandex.")) return false
+        if (allowGuardahd && u.contains("guardahd.stream")) return true
+        return u.contains("supervideo.") ||
+            u.contains("vixsrc.to") ||
+            u.contains("vixcloud") ||
+            u.contains("dropload") ||
+            u.contains("dr0pstream") ||
+            u.contains("mixdrop") ||
+            u.contains("m1xdrop") ||
+            u.contains("dhcplay") ||
+            u.contains("streamhg") ||
+            u.contains("doodstream") ||
+            u.contains("dood.") ||
+            u.contains("upstream") ||
+            u.contains("streamtape")
+    }
+
+    private fun referersWithGuardahdForEmbeds(url: String): List<String> {
+        val base = referersForGenericHost(url)
+        val u = url.lowercase()
+        val fromGuardahdPlayer = listOf(
+            "mixdrop", "m1xdrop", "dropload", "dr0pstream",
+            "dhcplay", "streamhg", "doodstream", "dood.", "upstream", "streamtape",
+        ).any { u.contains(it) }
+        return if (fromGuardahdPlayer) {
+            (base + "https://guardahd.stream/" + "https://guardahd.stream/index.php").distinct()
+        } else {
+            base
+        }
+    }
+
     private suspend fun getTradeMainPage(request: MainPageRequest): HomePageResponse {
         val homepagePayload = runCatching { app.get(tradeBaseUrl).body.string() }
             .getOrNull()
@@ -479,7 +522,7 @@ class StreamingCommunity(
         val iframeUrls = document.select("iframe[src]")
             .mapNotNull { iframe -> fixTradeUrl(iframe.attr("src")) }
             .filter { it.isNotBlank() }
-        val mirrorUrls = document.select(".mirrors span[data-link], .mirrors [data-link]")
+        val mirrorUrls = document.select(tradeMirrorDataLinkSelectors)
             .mapNotNull { mirror -> fixTradeUrl(mirror.attr("data-link")) }
             .filter { it.isNotBlank() }
         val optionUrls = document.select("select.smirrors option[value]")
@@ -488,12 +531,7 @@ class StreamingCommunity(
         val scriptUrls = Regex("https?://[^\"'\\s<>]+")
             .findAll(document.html())
             .map { it.value }
-            .filter { url ->
-                url.contains("guardahd.stream", ignoreCase = true) ||
-                    url.contains("supervideo.", ignoreCase = true) ||
-                    url.contains("vixsrc.to", ignoreCase = true) ||
-                    url.contains("vixcloud.", ignoreCase = true)
-            }
+            .filter { isStreamingScriptAbsoluteUrl(it, allowGuardahd = true) }
         return (iframeUrls + mirrorUrls + optionUrls + scriptUrls).distinct()
     }
 
@@ -517,18 +555,14 @@ class StreamingCommunity(
         val document = runCatching { app.get(url).document }.getOrNull() ?: return emptyList()
         val iframeUrls = document.select("iframe[src]")
             .mapNotNull { iframe -> fixTradeUrl(iframe.attr("src")) }
-        val mirrorUrls = document.select(".mirrors span[data-link], .mirrors [data-link]")
+        val mirrorUrls = document.select(tradeMirrorDataLinkSelectors)
             .mapNotNull { mirror -> fixTradeUrl(mirror.attr("data-link")) }
         val optionUrls = document.select("select.smirrors option[value]")
             .mapNotNull { option -> fixTradeUrl(option.attr("value")) }
         val scriptUrls = Regex("https?://[^\"'\\s<>]+")
             .findAll(document.html())
             .map { it.value }
-            .filter { sourceUrl ->
-                sourceUrl.contains("supervideo.", ignoreCase = true) ||
-                    sourceUrl.contains("vixsrc.to", ignoreCase = true) ||
-                    sourceUrl.contains("vixcloud.", ignoreCase = true)
-            }
+            .filter { isStreamingScriptAbsoluteUrl(it, allowGuardahd = false) }
         return (iframeUrls + mirrorUrls + optionUrls + scriptUrls)
             .map { it.trim() }
             .filter { it.isNotBlank() && !it.contains("{") }
@@ -693,7 +727,7 @@ class StreamingCommunity(
                     sourceUrl,
                     subtitleCallback,
                     counter,
-                    referersForGenericHost(sourceUrl),
+                    referersWithGuardahdForEmbeds(sourceUrl),
                 )
             }
         }
