@@ -517,6 +517,10 @@ class StreamingCommunity(
         val document = runCatching { app.get(url).document }.getOrNull() ?: return emptyList()
         val iframeUrls = document.select("iframe[src]")
             .mapNotNull { iframe -> fixTradeUrl(iframe.attr("src")) }
+        val mirrorUrls = document.select(".mirrors span[data-link], .mirrors [data-link]")
+            .mapNotNull { mirror -> fixTradeUrl(mirror.attr("data-link")) }
+        val optionUrls = document.select("select.smirrors option[value]")
+            .mapNotNull { option -> fixTradeUrl(option.attr("value")) }
         val scriptUrls = Regex("https?://[^\"'\\s<>]+")
             .findAll(document.html())
             .map { it.value }
@@ -525,10 +529,123 @@ class StreamingCommunity(
                     sourceUrl.contains("vixsrc.to", ignoreCase = true) ||
                     sourceUrl.contains("vixcloud.", ignoreCase = true)
             }
-        return (iframeUrls + scriptUrls)
+        return (iframeUrls + mirrorUrls + optionUrls + scriptUrls)
             .map { it.trim() }
             .filter { it.isNotBlank() && !it.contains("{") }
             .distinct()
+    }
+
+    /** Normalizza URL candidati (come nel provider storico + protocol-relative). */
+    private fun normalizeTradeCandidateUrl(raw: String): String? {
+        val t = raw.trim()
+        if (t.isBlank() || t.contains("{")) return null
+        val fixed = when {
+            t.startsWith("//") -> "https:$t"
+            else -> t
+        }
+        return fixed.takeIf { it.startsWith("http", ignoreCase = true) }
+    }
+
+    /**
+     * Combina il flusso storico (referer vixsrc.to, loadExtractor con tradeBaseUrl) con fallback
+     * sul dominio embedder quando il primo tentativo fallisce.
+     */
+    private suspend fun tryVixSrcExtract(
+        url: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit,
+        /** Secondo referer: su DLE è il sito embedder; su API Laravel è [baseUrl]. */
+        secondaryReferer: String = tradeBaseUrl.trimEnd('/') + "/",
+    ) {
+        val referers = listOf(
+            "https://vixsrc.to/",
+            secondaryReferer.trimEnd('/') + "/",
+        )
+        var lastError: Throwable? = null
+        for (ref in referers) {
+            runCatching {
+                VixSrcExtractor().getUrl(
+                    url = url,
+                    referer = ref,
+                    subtitleCallback = subtitleCallback,
+                    callback = callback
+                )
+            }.onSuccess { return }
+                .onFailure { lastError = it }
+        }
+        Log.e(TAG, "VixSrc fallito per url=$url — ${lastError?.message}")
+    }
+
+    private suspend fun tryVixCloudExtract(
+        url: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit,
+    ) {
+        val referers = listOf(
+            baseUrl.trimEnd('/') + "/",
+            tradeBaseUrl.trimEnd('/') + "/",
+        ).distinct()
+        var lastError: Throwable? = null
+        for (ref in referers) {
+            runCatching {
+                VixCloudExtractor().getUrl(
+                    url = url,
+                    referer = ref,
+                    subtitleCallback = subtitleCallback,
+                    callback = callback
+                )
+            }.onSuccess { return }
+                .onFailure { lastError = it }
+        }
+        Log.e(TAG, "VixCloud fallito per url=$url — ${lastError?.message}")
+    }
+
+    private suspend fun tryLoadExtractorDual(
+        url: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit,
+    ) {
+        val referers = listOf(
+            tradeBaseUrl,
+            baseUrl.trimEnd('/') + "/",
+        ).distinct()
+        var lastError: Throwable? = null
+        for (ref in referers) {
+            runCatching {
+                loadExtractor(url, ref, subtitleCallback, callback)
+            }.onSuccess { return }
+                .onFailure { lastError = it }
+        }
+        Log.e(TAG, "loadExtractor fallito per url=$url — ${lastError?.message}")
+    }
+
+    /** Fonti guardahd: link estratti dalla pagina + URL guardahd originale (comportamento storico). */
+    private suspend fun collectGuardahdUrls(candidate: String): List<String> {
+        val expanded = extractGuardahdSourceUrls(candidate)
+        return buildList {
+            addAll(expanded)
+            add(candidate)
+        }.mapNotNull { normalizeTradeCandidateUrl(it) }
+            .distinct()
+    }
+
+    private suspend fun dispatchTradeStreamSource(
+        sourceUrl: String,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit,
+    ) {
+        runCatching {
+            when {
+                sourceUrl.contains("vixsrc.to", ignoreCase = true) ->
+                    tryVixSrcExtract(sourceUrl, subtitleCallback, callback)
+                sourceUrl.contains("vixcloud", ignoreCase = true) ->
+                    tryVixCloudExtract(sourceUrl, subtitleCallback, callback)
+                else ->
+                    tryLoadExtractorDual(sourceUrl, subtitleCallback, callback)
+            }
+        }.onFailure {
+            Log.e(TAG, "dispatchTradeStreamSource url=$sourceUrl: ${it.message}")
+        }
     }
 
     private fun buildGuardahdUrl(imdbId: String?, fallback: String?): String? {
@@ -865,43 +982,17 @@ class StreamingCommunity(
                 resolveTradeMovieUrls(tradeLoadData)
             }
             val candidateUrls = rawCandidateUrls
-                .map { it.trim() }
-                .filter { it.isNotBlank() && it.startsWith("http") && !it.contains("{") }
+                .mapNotNull { normalizeTradeCandidateUrl(it) }
                 .distinct()
 
             candidateUrls.forEach { candidate ->
                 val urlsToResolve = if (candidate.contains("guardahd.stream", ignoreCase = true)) {
-                    extractGuardahdSourceUrls(candidate).ifEmpty { listOf(candidate) }
+                    collectGuardahdUrls(candidate)
                 } else {
                     listOf(candidate)
                 }
-
                 urlsToResolve.forEach { sourceUrl ->
-                    runCatching {
-                        when {
-                            sourceUrl.contains("vixsrc.to", ignoreCase = true) -> {
-                                VixSrcExtractor().getUrl(
-                                    url = sourceUrl,
-                                    referer = tradeBaseUrl,
-                                    subtitleCallback = subtitleCallback,
-                                    callback = callback
-                                )
-                            }
-                            sourceUrl.contains("vixcloud", ignoreCase = true) -> {
-                                VixCloudExtractor().getUrl(
-                                    url = sourceUrl,
-                                    referer = baseUrl,
-                                    subtitleCallback = subtitleCallback,
-                                    callback = callback
-                                )
-                            }
-                            else -> {
-                                loadExtractor(sourceUrl, tradeBaseUrl, subtitleCallback, callback)
-                            }
-                        }
-                    }.onFailure {
-                        Log.e(TAG, "Failed to resolve trade source url=$sourceUrl: ${it.message}")
-                    }
+                    dispatchTradeStreamSource(sourceUrl, subtitleCallback, callback)
                 }
             }
             return candidateUrls.isNotEmpty()
@@ -925,11 +1016,11 @@ class StreamingCommunity(
             "https://vixsrc.to/tv/${loadData.tmdbId}/${loadData.seasonNumber}/${loadData.episodeNumber}"
         }
 
-        VixSrcExtractor().getUrl(
+        tryVixSrcExtract(
             url = vixsrcUrl,
-            referer = "https://vixsrc.to/",
             subtitleCallback = subtitleCallback,
-            callback = callback
+            callback = callback,
+            secondaryReferer = baseUrl.trimEnd('/') + "/",
         )
 
         return true
