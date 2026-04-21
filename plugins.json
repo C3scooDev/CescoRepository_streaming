@@ -46,10 +46,10 @@
     },
     {
         "iconUrl": "https://streaming-community.surf/apple-touch-icon.png?v=2",
-        "fileHash": "sha256-e66344ed2ecfe9e244325afbf5dd6cf6a85923c2d43961991440540e0cba28e8",
+        "fileHash": "sha256-c76785a0b23a613d65d69c76415b6576654524e73f2582a515b7e630de1c32b9",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/C3scooDev/CescoRepository_streaming",
-        "fileSize": 87117,
+        "fileSize": 89533,
         "status": 1,
         "language": "it",
         "authors": [
@@ -61,7 +61,7 @@
             "Documentary",
             "Cartoon"
         ],
-        "version": 33,
+        "version": 34,
         "internalName": "StreamingCommunity",
         "description": "TV Shows and Movies from StreamingCommunity",
         "url": "https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/builds/StreamingCommunity.cs3",
