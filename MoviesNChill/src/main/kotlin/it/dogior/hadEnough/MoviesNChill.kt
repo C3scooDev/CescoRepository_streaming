@@ -14,6 +14,7 @@ import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.SearchResponseList
+import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
@@ -180,13 +181,13 @@ class MoviesNChill : MainAPI() {
             newMovieSearchResponse(displayTitle, url, TvType.Movie) {
                 this.posterUrl = posterUrl(item.posterPath)
                 this.year = year
-                this.rating = item.voteAverage
+                item.voteAverage?.let { va -> this.score = Score.from10(va) }
             }
         } else {
             newTvSeriesSearchResponse(displayTitle, url, TvType.TvSeries) {
                 this.posterUrl = posterUrl(item.posterPath)
                 this.year = year
-                this.rating = item.voteAverage
+                item.voteAverage?.let { va -> this.score = Score.from10(va) }
             }
         }
     }
@@ -199,9 +200,9 @@ class MoviesNChill : MainAPI() {
         if (apiKey().isBlank()) return emptyList<SearchResponse>() to false
         val body = runCatching {
             tmdbGet(path, mapOf("page" to page.toString(), "language" to "en-US"))
-        }.getOrElse { return emptyList() to false }
+        }.getOrElse { return emptyList<SearchResponse>() to false }
         val parsed = runCatching { parseJson<TmdbPaged<TmdbMediaItem>>(body) }.getOrNull()
-            ?: return emptyList() to false
+            ?: return emptyList<SearchResponse>() to false
         val items = parsed.results.orEmpty().mapNotNull { itemToSearch(it, forcedType) }
         val hasNext = page < parsed.totalPages
         return items to hasNext
@@ -297,7 +298,7 @@ class MoviesNChill : MainAPI() {
                 this.recommendations = recommendations
                 detail.imdbId?.let { addImdbId(it) }
                 addTMDbId(id.toString())
-                addScore(detail.voteAverage)
+                detail.voteAverage?.let { addScore(Score.from10(it)) }
             }
         }
 
@@ -314,9 +315,7 @@ class MoviesNChill : MainAPI() {
                 val embedUrl =
                     "https://vsrc.su/embed/tv?tmdb=$id&season=$s&episode=${ep.episodeNumber}"
                 episodes.add(
-                    newEpisode(
-                        data = MncPlayData(embedUrl = embedUrl).toJson(),
-                    ) {
+                    newEpisode(MncPlayData(embedUrl = embedUrl).toJson()) {
                         this.name = ep.name?.ifBlank { null } ?: "Episode ${ep.episodeNumber}"
                         this.season = s
                         this.episode = ep.episodeNumber
@@ -339,7 +338,7 @@ class MoviesNChill : MainAPI() {
             this.year = detail.firstAirDate?.substringBefore('-')?.toIntOrNull()
             this.tags = detail.genres.orEmpty().map { it.name }
             addTMDbId(id.toString())
-            addScore(detail.voteAverage)
+            detail.voteAverage?.let { addScore(Score.from10(it)) }
         }
     }
 
