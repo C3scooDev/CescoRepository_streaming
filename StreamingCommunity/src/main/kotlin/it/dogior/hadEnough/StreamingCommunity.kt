@@ -513,6 +513,24 @@ class StreamingCommunity(
         return resolved.distinct()
     }
 
+    private suspend fun extractGuardahdSourceUrls(url: String): List<String> {
+        val document = runCatching { app.get(url).document }.getOrNull() ?: return emptyList()
+        val iframeUrls = document.select("iframe[src]")
+            .mapNotNull { iframe -> fixTradeUrl(iframe.attr("src")) }
+        val scriptUrls = Regex("https?://[^\"'\\s<>]+")
+            .findAll(document.html())
+            .map { it.value }
+            .filter { sourceUrl ->
+                sourceUrl.contains("supervideo.", ignoreCase = true) ||
+                    sourceUrl.contains("vixsrc.to", ignoreCase = true) ||
+                    sourceUrl.contains("vixcloud.", ignoreCase = true)
+            }
+        return (iframeUrls + scriptUrls)
+            .map { it.trim() }
+            .filter { it.isNotBlank() && !it.contains("{") }
+            .distinct()
+    }
+
     private fun buildGuardahdUrl(imdbId: String?, fallback: String?): String? {
         val normalizedImdb = imdbId ?: Regex("id_imdb=(tt\\d+)").find(fallback ?: "")
             ?.groupValues
@@ -841,31 +859,48 @@ class StreamingCommunity(
         if (data.isEmpty()) return false
         val tradeLoadData = tryParseJson<TradeLoadData>(data)
         if (tradeLoadData != null) {
-            val candidateUrls = if (tradeLoadData.isSeries) {
+            val rawCandidateUrls = if (tradeLoadData.isSeries) {
                 tradeLoadData.urls
             } else {
                 resolveTradeMovieUrls(tradeLoadData)
             }
+            val candidateUrls = rawCandidateUrls
+                .map { it.trim() }
+                .filter { it.isNotBlank() && it.startsWith("http") && !it.contains("{") }
+                .distinct()
+
             candidateUrls.forEach { candidate ->
-                when {
-                    candidate.contains("vixsrc.to", ignoreCase = true) -> {
-                        VixSrcExtractor().getUrl(
-                            url = candidate,
-                            referer = "https://vixsrc.to/",
-                            subtitleCallback = subtitleCallback,
-                            callback = callback
-                        )
-                    }
-                    candidate.contains("vixcloud", ignoreCase = true) -> {
-                        VixCloudExtractor().getUrl(
-                            url = candidate,
-                            referer = baseUrl,
-                            subtitleCallback = subtitleCallback,
-                            callback = callback
-                        )
-                    }
-                    else -> {
-                        loadExtractor(candidate, tradeBaseUrl, subtitleCallback, callback)
+                val urlsToResolve = if (candidate.contains("guardahd.stream", ignoreCase = true)) {
+                    extractGuardahdSourceUrls(candidate).ifEmpty { listOf(candidate) }
+                } else {
+                    listOf(candidate)
+                }
+
+                urlsToResolve.forEach { sourceUrl ->
+                    runCatching {
+                        when {
+                            sourceUrl.contains("vixsrc.to", ignoreCase = true) -> {
+                                VixSrcExtractor().getUrl(
+                                    url = sourceUrl,
+                                    referer = tradeBaseUrl,
+                                    subtitleCallback = subtitleCallback,
+                                    callback = callback
+                                )
+                            }
+                            sourceUrl.contains("vixcloud", ignoreCase = true) -> {
+                                VixCloudExtractor().getUrl(
+                                    url = sourceUrl,
+                                    referer = baseUrl,
+                                    subtitleCallback = subtitleCallback,
+                                    callback = callback
+                                )
+                            }
+                            else -> {
+                                loadExtractor(sourceUrl, tradeBaseUrl, subtitleCallback, callback)
+                            }
+                        }
+                    }.onFailure {
+                        Log.e(TAG, "Failed to resolve trade source url=$sourceUrl: ${it.message}")
                     }
                 }
             }
