@@ -45,11 +45,32 @@
         "name": "AnimeWorld"
     },
     {
-        "iconUrl": "https://streaming-community.surf/apple-touch-icon.png?v=2",
-        "fileHash": "sha256-c76785a0b23a613d65d69c76415b6576654524e73f2582a515b7e630de1c32b9",
+        "iconUrl": "https://moviesnchill.net/icon2.png",
+        "fileHash": "sha256-3099b4572ab95fecd8904ce23260a2ecc9d407067dd41d57befb29a96733c516",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/C3scooDev/CescoRepository_streaming",
-        "fileSize": 89533,
+        "fileSize": 32357,
+        "status": 1,
+        "language": "en",
+        "authors": [
+            "CescoDev"
+        ],
+        "tvTypes": [
+            "TvSeries",
+            "Movie"
+        ],
+        "version": 2,
+        "internalName": "MoviesNChill",
+        "description": "Film e serie (TMDB) con streaming via vsrc.su \u2014 ispirato a Movies & Chill (moviesnchill.net)",
+        "url": "https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/builds/MoviesNChill.cs3",
+        "name": "MoviesNChill"
+    },
+    {
+        "iconUrl": "https://streaming-community.surf/apple-touch-icon.png?v=2",
+        "fileHash": "sha256-45eab6743566f0c009d9948b8b4947679e5b979bb372348e5fe4b96cd1b45fdc",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/C3scooDev/CescoRepository_streaming",
+        "fileSize": 90429,
         "status": 1,
         "language": "it",
         "authors": [
@@ -61,7 +82,7 @@
             "Documentary",
             "Cartoon"
         ],
-        "version": 34,
+        "version": 35,
         "internalName": "StreamingCommunity",
         "description": "TV Shows and Movies from StreamingCommunity",
         "url": "https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/builds/StreamingCommunity.cs3",
