@@ -141,12 +141,14 @@ class MoviesNChill : MainAPI() {
         "https://vsrc.su/embed/$tmdbId",
         "https://vidsrc.to/embed/movie/$tmdbId",
         "https://vidsrc.xyz/embed/movie?tmdb=$tmdbId",
+        "https://vsembed.ru/embed/movie/$tmdbId/",
     )
 
     private fun buildTvEmbeds(tmdbId: Long, season: Int, episode: Int): List<String> = listOf(
         "https://vsrc.su/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode",
         "https://vidsrc.to/embed/tv/$tmdbId/$season/$episode",
         "https://vidsrc.xyz/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode",
+        "https://vsembed.ru/embed/tv/$tmdbId/$season-$episode",
     )
 
     private fun tmdbUrl(path: String, params: Map<String, String> = emptyMap()): String {
