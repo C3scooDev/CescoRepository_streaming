@@ -30,7 +30,9 @@ import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
 import com.lagradost.cloudstream3.utils.ExtractorLink
+import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.loadExtractor
+import com.lagradost.cloudstream3.utils.newExtractorLink
 import okhttp3.HttpUrl.Companion.toHttpUrl
 
 private const val BRANDING = "https://moviesnchill.net"
@@ -240,6 +242,73 @@ class MoviesNChill : MainAPI() {
         return (iframeUrls + dataLinkUrls + optionUrls + scriptUrls)
             .filter { isInterestingHost(it) }
             .distinct()
+    }
+
+    private fun extractProrcpPath(html: String): String? {
+        return Regex("""src:\s*'(/prorcp/[^']+)'""")
+            .find(html)
+            ?.groupValues
+            ?.getOrNull(1)
+    }
+
+    private fun extractCloudnestraMasterPlaylists(html: String): List<String> {
+        val rawUrls = Regex("""https://tmstr2\.\{v\d+\}/pl/[^\s"']+/master\.m3u8""")
+            .findAll(html)
+            .map { it.value }
+            .toList()
+        return rawUrls.map { it.replace(Regex("""\{v\d+\}"""), "cloudnestra.com") }
+            .distinct()
+    }
+
+    private suspend fun tryEmitCloudnestraLinks(
+        currentUrl: String,
+        referers: List<String>,
+        callback: (ExtractorLink) -> Unit,
+    ): Int {
+        val emitted = mutableListOf<ExtractorLink>()
+
+        val currentHost = runCatching { currentUrl.toHttpUrl().host }.getOrNull().orEmpty()
+        if (!currentHost.contains("cloudnestra.com")) return 0
+
+        var html: String? = null
+        referers.forEach { ref ->
+            if (html != null) return@forEach
+            html = runCatching { app.get(currentUrl, headers = mapOf("Referer" to ref)).text }
+                .getOrNull()
+        }
+        val initial = html ?: return 0
+
+        val pagesToParse = mutableListOf(initial)
+        extractProrcpPath(initial)?.let { prorcpPath ->
+            val prorcpUrl = normalizeCandidateUrl(prorcpPath, currentUrl)
+            if (prorcpUrl != null) {
+                referersFor(prorcpUrl, currentUrl).forEach { ref ->
+                    val nested = runCatching {
+                        app.get(prorcpUrl, headers = mapOf("Referer" to ref)).text
+                    }.getOrNull()
+                    if (nested != null) {
+                        pagesToParse += nested
+                        return@forEach
+                    }
+                }
+            }
+        }
+
+        pagesToParse.flatMap { extractCloudnestraMasterPlaylists(it) }
+            .distinct()
+            .forEach { m3u8 ->
+                emitted += newExtractorLink(
+                    source = "MoviesNChill",
+                    name = "MoviesNChill - Cloudnestra",
+                    url = m3u8,
+                    type = ExtractorLinkType.M3U8,
+                ) {
+                    this.referer = "https://cloudnestra.com/"
+                }
+            }
+
+        emitted.forEach(callback)
+        return emitted.size
     }
 
     private fun buildItemUrl(tmdbType: String, id: Long): String =
@@ -458,6 +527,11 @@ class MoviesNChill : MainAPI() {
 
             referers.forEach { ref ->
                 runCatching { loadExtractor(current, ref, subtitleCallback, wrap) }
+            }
+
+            if (emitted == 0) {
+                val cloudEmitted = tryEmitCloudnestraLinks(current, referers, wrap)
+                if (cloudEmitted > 0) continue
             }
 
             if (emitted > 0) continue
