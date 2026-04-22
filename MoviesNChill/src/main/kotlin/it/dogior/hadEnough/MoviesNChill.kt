@@ -36,10 +36,12 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 private const val BRANDING = "https://moviesnchill.net"
 private const val VSRC_REFERER = "$BRANDING/"
 private const val TMDB_IMG = "https://image.tmdb.org/t/p"
+private const val TMDB_FALLBACK_API_KEY = "57240db50c2008e78c261e1a934627e4"
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class MncPlayData(
-    @JsonProperty("embedUrl") val embedUrl: String,
+    @JsonProperty("embedUrl") val embedUrl: String? = null,
+    @JsonProperty("embedUrls") val embedUrls: List<String>? = null,
     @JsonProperty("referer") val referer: String = VSRC_REFERER,
 )
 
@@ -130,7 +132,20 @@ class MoviesNChill : MainAPI() {
 
     private val loadPathRegex = Regex("""/m/(movie|tv)/(\d+)""")
 
-    private fun apiKey(): String = BuildConfig.TMDB_API.trim()
+    private fun apiKey(): String =
+        BuildConfig.TMDB_API.trim().ifBlank { TMDB_FALLBACK_API_KEY }
+
+    private fun buildMovieEmbeds(tmdbId: Long): List<String> = listOf(
+        "https://vsrc.su/embed/$tmdbId",
+        "https://vidsrc.to/embed/movie/$tmdbId",
+        "https://vidsrc.xyz/embed/movie?tmdb=$tmdbId",
+    )
+
+    private fun buildTvEmbeds(tmdbId: Long, season: Int, episode: Int): List<String> = listOf(
+        "https://vsrc.su/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode",
+        "https://vidsrc.to/embed/tv/$tmdbId/$season/$episode",
+        "https://vidsrc.xyz/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode",
+    )
 
     private fun tmdbUrl(path: String, params: Map<String, String> = emptyMap()): String {
         val key = apiKey()
@@ -275,7 +290,7 @@ class MoviesNChill : MainAPI() {
         if (kind == "movie") {
             val raw = tmdbGet("movie/$id", mapOf("language" to "en-US"))
             val detail = parseJson<TmdbMovieDetail>(raw)
-            val embedUrl = "https://vsrc.su/embed/$id"
+            val embedUrls = buildMovieEmbeds(id)
             val recBody = runCatching {
                 tmdbGet("movie/$id/recommendations", mapOf("page" to "1", "language" to "en-US"))
             }.getOrNull()
@@ -287,7 +302,7 @@ class MoviesNChill : MainAPI() {
                 name = detail.title,
                 url = url,
                 type = TvType.Movie,
-                dataUrl = MncPlayData(embedUrl = embedUrl).toJson(),
+                dataUrl = MncPlayData(embedUrl = embedUrls.first(), embedUrls = embedUrls).toJson(),
             ) {
                 this.posterUrl = posterUrl(detail.posterPath, "w780")
                 this.backgroundPosterUrl = posterUrl(detail.backdropPath, "w1280")
@@ -312,10 +327,11 @@ class MoviesNChill : MainAPI() {
             }.getOrNull() ?: continue
             val season = runCatching { parseJson<TmdbSeasonResponse>(seasonJson) }.getOrNull() ?: continue
             season.episodes.orEmpty().forEach { ep ->
-                val embedUrl =
-                    "https://vsrc.su/embed/tv?tmdb=$id&season=$s&episode=${ep.episodeNumber}"
+                val embedUrls = buildTvEmbeds(id, s, ep.episodeNumber)
                 episodes.add(
-                    newEpisode(MncPlayData(embedUrl = embedUrl).toJson()) {
+                    newEpisode(
+                        MncPlayData(embedUrl = embedUrls.first(), embedUrls = embedUrls).toJson()
+                    ) {
                         this.name = ep.name?.ifBlank { null } ?: "Episode ${ep.episodeNumber}"
                         this.season = s
                         this.episode = ep.episodeNumber
@@ -350,7 +366,13 @@ class MoviesNChill : MainAPI() {
     ): Boolean {
         val payload = tryParseJson<MncPlayData>(data) ?: return false
         val referer = payload.referer.ifBlank { VSRC_REFERER }
-        val headers = mapOf("Referer" to referer)
+        val candidateEmbeds = buildList {
+            addAll(payload.embedUrls.orEmpty())
+            payload.embedUrl?.let { add(it) }
+        }.map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (candidateEmbeds.isEmpty()) return false
 
         var emitted = 0
         val wrap: (ExtractorLink) -> Unit = {
@@ -358,19 +380,26 @@ class MoviesNChill : MainAPI() {
             callback(it)
         }
 
-        runCatching {
-            val doc = app.get(payload.embedUrl, headers = headers).document
-            val iframeSrc = doc.selectFirst("iframe#player_iframe")?.attr("src")
-                ?.takeIf { it.isNotBlank() }
-                ?: doc.select("iframe[src]").firstOrNull()?.attr("src").orEmpty()
-            val resolved = iframeSrc.takeIf { it.isNotBlank() }?.let { absolutizeIframe(it, payload.embedUrl) }
-            if (!resolved.isNullOrBlank()) {
-                loadExtractor(resolved, payload.embedUrl, subtitleCallback, wrap)
+        candidateEmbeds.forEach { embedUrl ->
+            runCatching {
+                val headers = mapOf("Referer" to referer)
+                val doc = app.get(embedUrl, headers = headers).document
+                val iframeSrc = doc.selectFirst("iframe#player_iframe")?.attr("src")
+                    ?.takeIf { it.isNotBlank() }
+                    ?: doc.select("iframe[src]").firstOrNull()?.attr("src").orEmpty()
+                val resolved = iframeSrc.takeIf { it.isNotBlank() }?.let {
+                    absolutizeIframe(it, embedUrl)
+                }
+                if (!resolved.isNullOrBlank()) {
+                    loadExtractor(resolved, embedUrl, subtitleCallback, wrap)
+                }
             }
-        }
 
-        if (emitted == 0) {
-            loadExtractor(payload.embedUrl, referer, subtitleCallback, wrap)
+            if (emitted == 0) {
+                runCatching {
+                    loadExtractor(embedUrl, referer, subtitleCallback, wrap)
+                }
+            }
         }
 
         return emitted > 0
