@@ -178,6 +178,70 @@ class MoviesNChill : MainAPI() {
         return basePage.toHttpUrl().resolve(s)?.toString() ?: s
     }
 
+    private fun originOf(url: String): String? = runCatching {
+        val u = url.toHttpUrl()
+        "${u.scheme}://${u.host}/"
+    }.getOrNull()
+
+    private fun referersFor(url: String, fallback: String): List<String> = buildList {
+        add(fallback)
+        originOf(url)?.let { add(it) }
+        add("https://moviesnchill.net/")
+        add("https://vsrc.su/")
+        add("https://vidsrc.to/")
+        add("https://vidsrc.xyz/")
+        add("https://vsembed.ru/")
+    }.map { it.trim() }
+        .filter { it.startsWith("http") }
+        .distinct()
+
+    private fun normalizeCandidateUrl(raw: String, basePage: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank() || trimmed.contains("{")) return null
+        val normalized = when {
+            trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true) -> trimmed
+            trimmed.startsWith("//") -> "https:$trimmed"
+            else -> basePage.toHttpUrl().resolve(trimmed)?.toString()
+        } ?: return null
+        if (!normalized.startsWith("http", ignoreCase = true)) return null
+        return normalized
+    }
+
+    private fun isInterestingHost(url: String): Boolean {
+        val u = url.lowercase()
+        return u.contains("vsrc.su") ||
+            u.contains("vidsrc.to") ||
+            u.contains("vidsrc.xyz") ||
+            u.contains("vsembed.ru") ||
+            u.contains("cloudnestra.com") ||
+            u.contains("dr0pstream") ||
+            u.contains("dropload") ||
+            u.contains("mixdrop") ||
+            u.contains("m1xdrop") ||
+            u.contains("dhcplay") ||
+            u.contains("streamhg") ||
+            u.contains("supervideo") ||
+            u.contains("vixcloud") ||
+            u.contains("upstream") ||
+            u.contains("dood")
+    }
+
+    private fun discoverNestedUrls(document: org.jsoup.nodes.Document, basePage: String): List<String> {
+        val iframeUrls = document.select("iframe[src]")
+            .mapNotNull { normalizeCandidateUrl(it.attr("src"), basePage) }
+        val dataLinkUrls = document.select("[data-link]")
+            .mapNotNull { normalizeCandidateUrl(it.attr("data-link"), basePage) }
+        val optionUrls = document.select("option[value]")
+            .mapNotNull { normalizeCandidateUrl(it.attr("value"), basePage) }
+        val scriptUrls = Regex("https?://[^\"'\\s<>]+")
+            .findAll(document.html())
+            .map { it.value }
+            .mapNotNull { normalizeCandidateUrl(it, basePage) }
+        return (iframeUrls + dataLinkUrls + optionUrls + scriptUrls)
+            .filter { isInterestingHost(it) }
+            .distinct()
+    }
+
     private fun buildItemUrl(tmdbType: String, id: Long): String =
         "${mainUrl.trimEnd('/')}/m/$tmdbType/$id"
 
@@ -380,24 +444,37 @@ class MoviesNChill : MainAPI() {
             callback(it)
         }
 
-        candidateEmbeds.forEach { embedUrl ->
-            runCatching {
-                val headers = mapOf("Referer" to referer)
-                val doc = app.get(embedUrl, headers = headers).document
-                val iframeSrc = doc.selectFirst("iframe#player_iframe")?.attr("src")
-                    ?.takeIf { it.isNotBlank() }
-                    ?: doc.select("iframe[src]").firstOrNull()?.attr("src").orEmpty()
-                val resolved = iframeSrc.takeIf { it.isNotBlank() }?.let {
-                    absolutizeIframe(it, embedUrl)
-                }
-                if (!resolved.isNullOrBlank()) {
-                    loadExtractor(resolved, embedUrl, subtitleCallback, wrap)
-                }
+        val queue = ArrayDeque<String>()
+        queue.addAll(candidateEmbeds)
+        val seen = mutableSetOf<String>()
+        var hops = 0
+
+        while (queue.isNotEmpty() && hops < 30) {
+            val current = queue.removeFirst()
+            if (!seen.add(current)) continue
+            hops++
+
+            val referers = referersFor(current, referer)
+
+            referers.forEach { ref ->
+                runCatching { loadExtractor(current, ref, subtitleCallback, wrap) }
             }
 
-            if (emitted == 0) {
-                runCatching {
-                    loadExtractor(embedUrl, referer, subtitleCallback, wrap)
+            if (emitted > 0) continue
+
+            var fetchedDoc: org.jsoup.nodes.Document? = null
+            referers.forEach { ref ->
+                if (fetchedDoc != null) return@forEach
+                fetchedDoc = runCatching {
+                    app.get(current, headers = mapOf("Referer" to ref)).document
+                }.getOrNull()
+            }
+
+            fetchedDoc?.let { doc ->
+                discoverNestedUrls(doc, current).forEach { nested ->
+                    if (!seen.contains(nested)) {
+                        queue.addLast(nested)
+                    }
                 }
             }
         }
