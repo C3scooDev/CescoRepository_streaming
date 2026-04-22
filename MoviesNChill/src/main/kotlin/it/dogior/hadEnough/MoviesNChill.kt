@@ -39,6 +39,10 @@ private const val BRANDING = "https://moviesnchill.net"
 private const val VSRC_REFERER = "$BRANDING/"
 private const val TMDB_IMG = "https://image.tmdb.org/t/p"
 private const val TMDB_FALLBACK_API_KEY = "57240db50c2008e78c261e1a934627e4"
+private const val LINKS_TIMEOUT_MS = 25_000L
+private const val LINKS_MAX_HOPS = 16
+private const val LINKS_MAX_REFERERS_PER_URL = 3
+private const val LINKS_MAX_NESTED_PER_PAGE = 10
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class MncPlayData(
@@ -541,24 +545,31 @@ class MoviesNChill : MainAPI() {
         val seen = mutableSetOf<String>()
         var hops = 0
 
-        while (queue.isNotEmpty() && hops < 30) {
+        val startedAt = System.currentTimeMillis()
+        while (
+            queue.isNotEmpty() &&
+            hops < LINKS_MAX_HOPS &&
+            (System.currentTimeMillis() - startedAt) < LINKS_TIMEOUT_MS
+        ) {
             val currentPending = queue.removeFirst()
             val current = currentPending.url
             if (!seen.add(current)) continue
             hops++
 
             val referers = referersFor(current, currentPending.parentReferer)
+                .take(LINKS_MAX_REFERERS_PER_URL)
 
             referers.forEach { ref ->
                 runCatching { loadExtractor(current, ref, subtitleCallback, wrap) }
             }
+            if (emitted > 0) return true
 
             if (emitted == 0) {
                 val cloudEmitted = tryEmitCloudnestraLinks(current, referers, wrap)
-                if (cloudEmitted > 0) continue
+                if (cloudEmitted > 0) return true
             }
 
-            if (emitted > 0) continue
+            if (emitted > 0) return true
 
             var fetchedDoc: org.jsoup.nodes.Document? = null
             referers.forEach { ref ->
@@ -569,11 +580,13 @@ class MoviesNChill : MainAPI() {
             }
 
             fetchedDoc?.let { doc ->
-                discoverNestedUrls(doc, current).forEach { nested ->
-                    if (!seen.contains(nested)) {
-                        queue.addLast(PendingUrl(url = nested, parentReferer = current))
+                discoverNestedUrls(doc, current)
+                    .take(LINKS_MAX_NESTED_PER_PAGE)
+                    .forEach { nested ->
+                        if (!seen.contains(nested)) {
+                            queue.addLast(PendingUrl(url = nested, parentReferer = current))
+                        }
                     }
-                }
             }
         }
 
