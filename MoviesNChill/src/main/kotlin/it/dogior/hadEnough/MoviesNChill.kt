@@ -522,17 +522,20 @@ class MoviesNChill : MainAPI() {
             callback(it)
         }
 
-        val queue = ArrayDeque<String>()
-        queue.addAll(candidateEmbeds)
+        data class PendingUrl(val url: String, val parentReferer: String)
+
+        val queue = ArrayDeque<PendingUrl>()
+        queue.addAll(candidateEmbeds.map { PendingUrl(url = it, parentReferer = referer) })
         val seen = mutableSetOf<String>()
         var hops = 0
 
         while (queue.isNotEmpty() && hops < 30) {
-            val current = queue.removeFirst()
+            val currentPending = queue.removeFirst()
+            val current = currentPending.url
             if (!seen.add(current)) continue
             hops++
 
-            val referers = referersFor(current, referer)
+            val referers = referersFor(current, currentPending.parentReferer)
 
             referers.forEach { ref ->
                 runCatching { loadExtractor(current, ref, subtitleCallback, wrap) }
@@ -556,7 +559,7 @@ class MoviesNChill : MainAPI() {
             fetchedDoc?.let { doc ->
                 discoverNestedUrls(doc, current).forEach { nested ->
                     if (!seen.contains(nested)) {
-                        queue.addLast(nested)
+                        queue.addLast(PendingUrl(url = nested, parentReferer = current))
                     }
                 }
             }

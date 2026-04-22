@@ -1,6 +1,6 @@
 import org.jetbrains.kotlin.konan.properties.Properties
 
-version = 8
+version = 9
 
 cloudstream {
     description = "Film e serie (TMDB) con streaming via vsrc.su — ispirato a Movies & Chill (moviesnchill.net)"
