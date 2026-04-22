@@ -141,6 +141,9 @@ class MoviesNChill : MainAPI() {
         "https://vsrc.su/embed/$tmdbId",
         "https://vidsrc.to/embed/movie/$tmdbId",
         "https://vidsrc.xyz/embed/movie?tmdb=$tmdbId",
+        "https://www.2embed.cc/embed/$tmdbId",
+        "https://www.2embed.skin/embed/$tmdbId",
+        "https://multiembed.mov/?video_id=$tmdbId&tmdb=1",
         "https://vsembed.ru/embed/movie/$tmdbId/",
     )
 
@@ -148,6 +151,9 @@ class MoviesNChill : MainAPI() {
         "https://vsrc.su/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode",
         "https://vidsrc.to/embed/tv/$tmdbId/$season/$episode",
         "https://vidsrc.xyz/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode",
+        "https://www.2embed.cc/embedtv/$tmdbId&s=$season&e=$episode",
+        "https://www.2embed.skin/embedtv/$tmdbId&s=$season&e=$episode",
+        "https://multiembed.mov/?video_id=$tmdbId&tmdb=1&s=$season&e=$episode",
         "https://vsembed.ru/embed/tv/$tmdbId/$season-$episode",
     )
 
@@ -194,6 +200,9 @@ class MoviesNChill : MainAPI() {
         add("https://vsrc.su/")
         add("https://vidsrc.to/")
         add("https://vidsrc.xyz/")
+        add("https://www.2embed.cc/")
+        add("https://www.2embed.skin/")
+        add("https://multiembed.mov/")
         add("https://vsembed.ru/")
     }.map { it.trim() }
         .filter { it.startsWith("http") }
@@ -216,6 +225,9 @@ class MoviesNChill : MainAPI() {
         return u.contains("vsrc.su") ||
             u.contains("vidsrc.to") ||
             u.contains("vidsrc.xyz") ||
+            u.contains("2embed.cc") ||
+            u.contains("2embed.skin") ||
+            u.contains("multiembed.mov") ||
             u.contains("vsembed.ru") ||
             u.contains("cloudnestra.com") ||
             u.contains("dr0pstream") ||
