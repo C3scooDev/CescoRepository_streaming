@@ -46,10 +46,10 @@
     },
     {
         "iconUrl": "https://moviesnchill.net/icon2.png",
-        "fileHash": "sha256-b21dad9ac14a68194696ffd3bf0b70c3c6716cd66a777ea84714e76f7414d02a",
+        "fileHash": "sha256-c39bee2cdcc6b722ac92ed018eac8eb574b8b1f137bcbfffbd643a722297f710",
         "apiVersion": 1,
         "repositoryUrl": "https://github.com/C3scooDev/CescoRepository_streaming",
-        "fileSize": 44930,
+        "fileSize": 45352,
         "status": 1,
         "language": "en",
         "authors": [
@@ -59,7 +59,7 @@
             "TvSeries",
             "Movie"
         ],
-        "version": 10,
+        "version": 11,
         "internalName": "MoviesNChill",
         "description": "Film e serie (TMDB) con streaming via vsrc.su \u2014 ispirato a Movies & Chill (moviesnchill.net)",
         "url": "https://raw.githubusercontent.com/C3scooDev/CescoRepository_streaming/builds/MoviesNChill.cs3",
