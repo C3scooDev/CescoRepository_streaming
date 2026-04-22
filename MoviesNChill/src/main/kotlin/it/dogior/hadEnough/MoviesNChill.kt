@@ -303,7 +303,11 @@ class MoviesNChill : MainAPI() {
                     url = m3u8,
                     type = ExtractorLinkType.M3U8,
                 ) {
-                    this.referer = "https://cloudnestra.com/"
+                    this.headers = mapOf(
+                        "Referer" to "https://cloudnestra.com/",
+                        "Origin" to "https://cloudnestra.com",
+                        "User-Agent" to "Mozilla/5.0",
+                    )
                 }
             }
 
