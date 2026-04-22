@@ -34,6 +34,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.loadExtractor
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.jsoup.Jsoup
 
 private const val BRANDING = "https://moviesnchill.net"
 private const val VSRC_REFERER = "$BRANDING/"
@@ -197,6 +198,30 @@ class MoviesNChill : MainAPI() {
         "${u.scheme}://${u.host}/"
     }.getOrNull()
 
+    private fun hostOf(url: String): String? = runCatching { url.toHttpUrl().host.lowercase() }.getOrNull()
+
+    private fun isChallengePage(html: String): Boolean {
+        val lower = html.lowercase()
+        return lower.contains("cf-turnstile") ||
+            lower.contains("challenges.cloudflare.com") ||
+            lower.contains("data-sitekey") && lower.contains("turnstile") ||
+            lower.contains("just a moment")
+    }
+
+    private fun embedPriority(url: String): Int {
+        val host = hostOf(url).orEmpty()
+        return when {
+            host.contains("vidsrc.to") -> 0
+            host.contains("2embed.cc") || host.contains("2embed.skin") -> 1
+            host.contains("multiembed.mov") -> 2
+            host.contains("vidsrc.xyz") -> 3
+            host.contains("vsrc.su") -> 4
+            host.contains("vsembed.ru") -> 5
+            host.contains("cloudnestra.com") -> 6
+            else -> 10
+        }
+    }
+
     private fun referersFor(url: String, fallback: String): List<String> = buildList {
         add(fallback)
         originOf(url)?.let { add(it) }
@@ -298,6 +323,7 @@ class MoviesNChill : MainAPI() {
                 .getOrNull()
         }
         val initial = html ?: return 0
+        if (isChallengePage(initial)) return 0
 
         val pagesToParse = mutableListOf(initial)
         extractProrcpPath(initial)?.let { prorcpPath ->
@@ -307,7 +333,7 @@ class MoviesNChill : MainAPI() {
                     val nested = runCatching {
                         app.get(prorcpUrl, headers = mapOf("Referer" to ref)).text
                     }.getOrNull()
-                    if (nested != null) {
+                        if (nested != null && !isChallengePage(nested)) {
                         pagesToParse += nested
                         return@forEach
                     }
@@ -530,6 +556,7 @@ class MoviesNChill : MainAPI() {
         }.map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
+            .sortedBy { embedPriority(it) }
         if (candidateEmbeds.isEmpty()) return false
 
         var emitted = 0
@@ -543,6 +570,7 @@ class MoviesNChill : MainAPI() {
         val queue = ArrayDeque<PendingUrl>()
         queue.addAll(candidateEmbeds.map { PendingUrl(url = it, parentReferer = referer) })
         val seen = mutableSetOf<String>()
+        val blockedHosts = mutableSetOf<String>()
         var hops = 0
 
         val startedAt = System.currentTimeMillis()
@@ -554,12 +582,15 @@ class MoviesNChill : MainAPI() {
             val currentPending = queue.removeFirst()
             val current = currentPending.url
             if (!seen.add(current)) continue
+            val currentHost = hostOf(current)
+            if (currentHost != null && blockedHosts.contains(currentHost)) continue
             hops++
 
             val referers = referersFor(current, currentPending.parentReferer)
                 .take(LINKS_MAX_REFERERS_PER_URL)
 
             referers.forEach { ref ->
+                if (currentHost != null && blockedHosts.contains(currentHost)) return@forEach
                 runCatching { loadExtractor(current, ref, subtitleCallback, wrap) }
             }
             if (emitted > 0) return true
@@ -574,9 +605,16 @@ class MoviesNChill : MainAPI() {
             var fetchedDoc: org.jsoup.nodes.Document? = null
             referers.forEach { ref ->
                 if (fetchedDoc != null) return@forEach
-                fetchedDoc = runCatching {
-                    app.get(current, headers = mapOf("Referer" to ref)).document
-                }.getOrNull()
+                val body = runCatching {
+                    app.get(current, headers = mapOf("Referer" to ref)).text
+                }.getOrNull() ?: return@forEach
+
+                if (isChallengePage(body)) {
+                    currentHost?.let { blockedHosts.add(it) }
+                    return@forEach
+                }
+
+                fetchedDoc = Jsoup.parse(body, current)
             }
 
             fetchedDoc?.let { doc ->
