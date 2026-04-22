@@ -233,13 +233,16 @@ class MoviesNChill : MainAPI() {
             .mapNotNull { normalizeCandidateUrl(it.attr("src"), basePage) }
         val dataLinkUrls = document.select("[data-link]")
             .mapNotNull { normalizeCandidateUrl(it.attr("data-link"), basePage) }
+        val cloudHashUrls = document.select("[data-hash]")
+            .mapNotNull { it.attr("data-hash").trim().takeIf { hash -> hash.isNotBlank() } }
+            .mapNotNull { hash -> normalizeCandidateUrl("//cloudnestra.com/rcp/$hash", basePage) }
         val optionUrls = document.select("option[value]")
             .mapNotNull { normalizeCandidateUrl(it.attr("value"), basePage) }
         val scriptUrls = Regex("https?://[^\"'\\s<>]+")
             .findAll(document.html())
             .map { it.value }
             .mapNotNull { normalizeCandidateUrl(it, basePage) }
-        return (iframeUrls + dataLinkUrls + optionUrls + scriptUrls)
+        return (iframeUrls + dataLinkUrls + cloudHashUrls + optionUrls + scriptUrls)
             .filter { isInterestingHost(it) }
             .distinct()
     }
